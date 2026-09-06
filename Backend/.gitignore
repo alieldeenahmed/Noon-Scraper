@@ -1,4 +1,5 @@
 .neon
 .env.local
 .claude
-.skills-lock.json
+skills-lock.json
+git add Backend/.gitignore Backend/skills-lock.json
