@@ -14,8 +14,12 @@ builder.Services.AddControllers()
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+// Back4app's environment-variable UI rejects the "__" hierarchical naming
+// .NET normally uses for ConnectionStrings__DefaultConnection, so it's set
+// there as a flat DATABASE variable instead - fall back to that.
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? builder.Configuration["DATABASE"];
+builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
 
 builder.Services.AddHttpClient<GitHubDispatchService>();
 
