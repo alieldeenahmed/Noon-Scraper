@@ -3,14 +3,32 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Playwright;
+using NoonScraper.Crawler;
 using NoonScraper.Data;
+using NoonScraper.Data.Models;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// Host.CreateApplicationBuilder only auto-loads user secrets when the environment
+// is "Development", and a bare console app has no launchSettings.json to set that -
+// so it's added explicitly here regardless of environment. In CI, the connection
+// string instead comes from an environment variable (ConnectionStrings__DefaultConnection),
+// which the default configuration sources already pick up.
+builder.Configuration.AddUserSecrets<Program>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 using var host = builder.Build();
+
+var categoryUrls = new (Category Category, string Url)[]
+{
+    (Category.Mobiles, "https://www.noon.com/egypt-en/mobiles/"),
+    (Category.Laptops, "https://www.noon.com/egypt-en/electronics-and-mobiles/computers-and-accessories/computers-new/laptops/"),
+    (Category.SkinCare, "https://www.noon.com/egypt-en/eg-skin-care/"),
+    (Category.HairCare, "https://www.noon.com/egypt-en/eg-hair-care/"),
+    (Category.PersonalCare, "https://www.noon.com/egypt-en/eg-personal-care/")
+};
 
 using var playwright = await Playwright.CreateAsync();
 await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
@@ -52,32 +70,71 @@ await context.AddInitScriptAsync("""
 
 var page = await context.NewPageAsync();
 
-page.Response += (_, res) =>
+using var scope = host.Services.CreateScope();
+var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+// Tracks products already added in this run, since the same product can appear
+// in multiple widgets on one page (e.g. both "Best sellers" and "Shop all mobiles"),
+// and neither would be found by a DB lookup until SaveChangesAsync actually runs.
+var productsInThisRun = new Dictionary<string, Product>();
+
+foreach (var (category, url) in categoryUrls)
 {
-    if (!res.Ok)
+    Console.WriteLine($"Scraping {category} at {url}");
+
+    List<ScrapedProduct> scraped;
+    try
     {
-        Console.WriteLine($"FAILED RESPONSE: {res.Status} {res.Url}");
+        scraped = await CategoryScraper.ScrapeAsync(page, url);
     }
-};
+    catch (Exception ex)
+    {
+        Console.WriteLine($"  Failed to scrape {category}: {ex.Message}");
+        continue;
+    }
 
-var response = await page.GotoAsync("https://www.noon.com/egypt-en/mobiles/");
+    Console.WriteLine($"  Found {scraped.Count} products");
 
-Console.WriteLine($"HTTP status: {response?.Status}");
-Console.WriteLine($"Page title: {await page.TitleAsync()}");
-Console.WriteLine($"URL after navigation: {page.Url}");
+    foreach (var item in scraped)
+    {
+        // Skip products already handled in this run - the same product can appear
+        // in multiple widgets on one page, and a second snapshot from the same
+        // crawl would just be redundant, near-identical history.
+        if (productsInThisRun.ContainsKey(item.Url))
+        {
+            continue;
+        }
 
-await page.WaitForTimeoutAsync(8000);
+        var product = await db.Products.FirstOrDefaultAsync(p => p.Url == item.Url);
+        if (product is null)
+        {
+            product = new Product
+            {
+                Url = item.Url,
+                Source = ProductSource.Seed,
+                IsActive = true
+            };
+            db.Products.Add(product);
+        }
 
-Console.WriteLine($"Page title after wait: {await page.TitleAsync()}");
+        productsInThisRun[item.Url] = product;
 
-var content = await page.ContentAsync();
-Console.WriteLine($"HTML length after wait: {content.Length}");
-await File.WriteAllTextAsync(
-    @"C:\Users\aliel\AppData\Local\Temp\claude\G--Code-projects-Noon-Scraper-Backend\bd89ba35-1548-40aa-ae3c-d00ecc20bcc4\scratchpad\noon-page.html",
-    content);
+        product.NoonProductId = item.NoonProductId;
+        product.Name = item.Name;
+        product.Category = category;
+        product.Rating = item.Rating;
 
-await page.ScreenshotAsync(new PageScreenshotOptions
-{
-    Path = @"C:\Users\aliel\AppData\Local\Temp\claude\G--Code-projects-Noon-Scraper-Backend\bd89ba35-1548-40aa-ae3c-d00ecc20bcc4\scratchpad\noon-smoke-test.png",
-    FullPage = true
-});
+        db.PriceSnapshots.Add(new PriceSnapshot
+        {
+            ProductId = product.Id,
+            Product = product,
+            Price = item.Price,
+            Stock = item.Stock,
+            DiscountPercent = item.DiscountPercent
+        });
+    }
+
+    await db.SaveChangesAsync();
+}
+
+Console.WriteLine("Done.");
