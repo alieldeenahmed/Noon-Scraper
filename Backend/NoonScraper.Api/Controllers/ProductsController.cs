@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NoonScraper.Api.Dtos;
+using NoonScraper.Api.Services;
 using NoonScraper.Data;
 using NoonScraper.Data.Models;
 
@@ -156,5 +157,49 @@ public class ProductsController(AppDbContext db) : ControllerBase
             .ToListAsync();
 
         return Ok(history);
+    }
+
+    // Live, on-demand cross-merchant comparison - not stored, since this is
+    // explicitly a one-off check rather than continuous background tracking.
+    [HttpPost("{id:int}/check-now")]
+    public async Task<ActionResult<CheckNowResponseDto>> CheckNow(int id)
+    {
+        var product = await db.Products.FindAsync(id);
+        if (product is null)
+        {
+            return NotFound();
+        }
+
+        List<OfferResult> offers;
+        try
+        {
+            await using var session = await StealthBrowserSession.LaunchAsync();
+            offers = await OfferScraper.ScrapeOffersAsync(session.Page, product.Url);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, $"Failed to check current offers: {ex.Message}");
+        }
+
+        if (offers.Count == 0)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, "No offers found on the product page.");
+        }
+
+        var ordered = offers.OrderBy(o => o.Price).ToList();
+        var lowest = ordered[0];
+
+        return Ok(new CheckNowResponseDto
+        {
+            ProductId = product.Id,
+            LowestPrice = lowest.Price,
+            LowestPriceMerchant = lowest.MerchantName,
+            Offers = ordered.Select(o => new OfferDto
+            {
+                MerchantName = o.MerchantName,
+                Price = o.Price,
+                Rating = o.Rating
+            }).ToList()
+        });
     }
 }
