@@ -58,6 +58,11 @@ app.Use(async (context, next) =>
     }
 });
 
+// TEMPORARY: lists env var keys (never values) visible to the running
+// container, to debug why DATABASE isn't reaching the config system.
+app.MapGet("/debug/env-keys", () =>
+    Environment.GetEnvironmentVariables().Keys.Cast<string>().OrderBy(k => k));
+
 app.UseHttpsRedirection();
 
 app.UseCors(FrontendCorsPolicy);
