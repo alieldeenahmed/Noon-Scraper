@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: noon-scraper-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Backend/Dockerfile
+    dockerContext: ./Backend
+    envVars:
+      # Set manually in the Render dashboard (Environment tab) rather than
+      # stored here - same reasoning as the GitHub Actions secret.
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
