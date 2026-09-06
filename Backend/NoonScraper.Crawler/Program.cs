@@ -1,8 +1,8 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Playwright;
 using NoonScraper.Crawler;
 using NoonScraper.Data;
 using NoonScraper.Data.Models;
@@ -31,6 +31,52 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 using var host = builder.Build();
 
+// Invoked by the check-now.yml GitHub Actions workflow, triggered by the API
+// via a repository_dispatch event - the API can no longer launch Chrome itself,
+// so this is the one place that actually performs an on-demand check.
+if (args.Length > 0 && args[0] == "check-now")
+{
+    var requestId = int.Parse(args[1]);
+
+    using var checkScope = host.Services.CreateScope();
+    var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    var request = await checkDb.CheckNowRequests
+        .Include(r => r.Product)
+        .FirstOrDefaultAsync(r => r.Id == requestId);
+
+    if (request is null)
+    {
+        Console.WriteLine($"CheckNowRequest {requestId} not found.");
+        Environment.Exit(1);
+    }
+
+    try
+    {
+        await using var checkBrowser = await StealthBrowser.LaunchAsync();
+        var offers = await OfferScraper.ScrapeOffersAsync(checkBrowser.Page, request!.Product!.Url);
+
+        if (offers.Count == 0)
+        {
+            throw new InvalidOperationException("No offers found on the product page.");
+        }
+
+        request.Status = CheckNowStatus.Completed;
+        request.ResultJson = JsonSerializer.Serialize(offers.OrderBy(o => o.Price));
+        Console.WriteLine($"Completed check-now for request {requestId}: {offers.Count} offer(s)");
+    }
+    catch (Exception ex)
+    {
+        request!.Status = CheckNowStatus.Failed;
+        request.ErrorMessage = ex.Message;
+        Console.WriteLine($"Failed check-now for request {requestId}: {ex.Message}");
+    }
+
+    request!.CompletedAt = DateTimeOffset.UtcNow;
+    await checkDb.SaveChangesAsync();
+    Environment.Exit(0);
+}
+
 var categoryUrls = new (Category Category, string Url)[]
 {
     (Category.Mobiles, "https://www.noon.com/egypt-en/mobiles/"),
@@ -40,45 +86,8 @@ var categoryUrls = new (Category Category, string Url)[]
     (Category.PersonalCare, "https://www.noon.com/egypt-en/eg-personal-care/")
 };
 
-using var playwright = await Playwright.CreateAsync();
-await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-{
-    Channel = "chrome",
-    Headless = false,
-    Args = ["--disable-blink-features=AutomationControlled"],
-    IgnoreDefaultArgs = ["--enable-automation"]
-});
-
-var context = await browser.NewContextAsync(new BrowserNewContextOptions
-{
-    Locale = "en-US",
-    TimezoneId = "Africa/Cairo",
-    ViewportSize = new ViewportSize { Width = 1366, Height = 768 }
-});
-
-// Masks the cheap, static automation signals (navigator.webdriver, missing chrome
-// runtime, plugin/language fingerprints) that bot-detection scripts check before
-// any real interaction happens. Does not defeat behavioral analysis.
-await context.AddInitScriptAsync("""
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-    window.chrome = { runtime: {} };
-
-    const originalQuery = window.navigator.permissions.query;
-    window.navigator.permissions.query = (parameters) => (
-        parameters.name === 'notifications'
-            ? Promise.resolve({ state: Notification.permission })
-            : originalQuery(parameters)
-    );
-
-    Object.defineProperty(navigator, 'plugins', {
-        get: () => [1, 2, 3, 4, 5].map(() => ({ name: 'Chrome PDF Plugin' }))
-    });
-
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    """);
-
-var page = await context.NewPageAsync();
+await using var stealthBrowser = await StealthBrowser.LaunchAsync();
+var page = stealthBrowser.Page;
 
 using var scope = host.Services.CreateScope();
 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

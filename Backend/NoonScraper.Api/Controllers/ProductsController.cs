@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NoonScraper.Api.Dtos;
@@ -9,7 +10,7 @@ namespace NoonScraper.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class ProductsController(AppDbContext db) : ControllerBase
+public class ProductsController(AppDbContext db, GitHubDispatchService dispatchService) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<ProductListItemDto>>> GetProducts([FromQuery] Category? category)
@@ -159,47 +160,82 @@ public class ProductsController(AppDbContext db) : ControllerBase
         return Ok(history);
     }
 
-    // Live, on-demand cross-merchant comparison - not stored, since this is
-    // explicitly a one-off check rather than continuous background tracking.
+    // On-demand cross-merchant comparison, done via GitHub Actions rather than
+    // in-process - this API has no browser available to it, so it hands the
+    // actual scrape off to the same Chrome-capable environment the daily crawl
+    // runs in, then the caller polls for the result.
     [HttpPost("{id:int}/check-now")]
-    public async Task<ActionResult<CheckNowResponseDto>> CheckNow(int id)
+    public async Task<ActionResult<CheckNowAcceptedDto>> CheckNow(int id)
     {
-        var product = await db.Products.FindAsync(id);
-        if (product is null)
+        var productExists = await db.Products.AnyAsync(p => p.Id == id);
+        if (!productExists)
         {
             return NotFound();
         }
 
-        List<OfferResult> offers;
+        var request = new CheckNowRequest
+        {
+            ProductId = id,
+            Status = CheckNowStatus.Pending,
+            RequestedAt = DateTimeOffset.UtcNow
+        };
+        db.CheckNowRequests.Add(request);
+        await db.SaveChangesAsync();
+
         try
         {
-            await using var session = await StealthBrowserSession.LaunchAsync();
-            offers = await OfferScraper.ScrapeOffersAsync(session.Page, product.Url);
+            await dispatchService.TriggerCheckNowAsync(request.Id);
         }
         catch (Exception ex)
         {
-            return StatusCode(StatusCodes.Status502BadGateway, $"Failed to check current offers: {ex.Message}");
+            request.Status = CheckNowStatus.Failed;
+            request.ErrorMessage = $"Failed to trigger check: {ex.Message}";
+            request.CompletedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+            return StatusCode(StatusCodes.Status502BadGateway, "Failed to trigger the check.");
         }
 
-        if (offers.Count == 0)
+        return AcceptedAtAction(nameof(GetCheckNowResult), new { id, requestId = request.Id }, new CheckNowAcceptedDto
         {
-            return StatusCode(StatusCodes.Status502BadGateway, "No offers found on the product page.");
+            RequestId = request.Id,
+            Status = request.Status.ToString()
+        });
+    }
+
+    [HttpGet("{id:int}/check-now/{requestId:int}")]
+    public async Task<ActionResult<CheckNowResultDto>> GetCheckNowResult(int id, int requestId)
+    {
+        var request = await db.CheckNowRequests.FirstOrDefaultAsync(r => r.Id == requestId && r.ProductId == id);
+        if (request is null)
+        {
+            return NotFound();
         }
 
-        var ordered = offers.OrderBy(o => o.Price).ToList();
-        var lowest = ordered[0];
+        List<OfferDto>? offers = null;
+        decimal? lowestPrice = null;
+        string? lowestMerchant = null;
 
-        return Ok(new CheckNowResponseDto
+        if (request.Status == CheckNowStatus.Completed && request.ResultJson is not null)
         {
-            ProductId = product.Id,
-            LowestPrice = lowest.Price,
-            LowestPriceMerchant = lowest.MerchantName,
-            Offers = ordered.Select(o => new OfferDto
+            // OfferResult (Crawler project) and OfferDto have identical shapes -
+            // deserializing straight into the DTO avoids needing a project
+            // reference between Api and Crawler just for this one type.
+            offers = JsonSerializer.Deserialize<List<OfferDto>>(request.ResultJson) ?? [];
+            if (offers.Count > 0)
             {
-                MerchantName = o.MerchantName,
-                Price = o.Price,
-                Rating = o.Rating
-            }).ToList()
+                lowestPrice = offers[0].Price;
+                lowestMerchant = offers[0].MerchantName;
+            }
+        }
+
+        return Ok(new CheckNowResultDto
+        {
+            RequestId = request.Id,
+            Status = request.Status.ToString(),
+            LowestPrice = lowestPrice,
+            LowestPriceMerchant = lowestMerchant,
+            Offers = offers,
+            ErrorMessage = request.ErrorMessage
         });
     }
 }

@@ -1,13 +1,8 @@
 using Microsoft.Playwright;
 
-namespace NoonScraper.Api.Services;
+namespace NoonScraper.Crawler;
 
-// Launches a Chrome instance with the same stealth mitigations the Crawler uses
-// (masks static automation signals Akamai's bot detection checks for). Headful
-// mode is required - headless Chrome is hard-blocked at the network layer even
-// with these mitigations. Locally this works because WSL provides a display;
-// deploying this to a real server will need Xvfb wrapping the process.
-public sealed class StealthBrowserSession : IAsyncDisposable
+public sealed class StealthBrowser : IAsyncDisposable
 {
     private readonly IPlaywright _playwright;
     private readonly IBrowser _browser;
@@ -15,7 +10,7 @@ public sealed class StealthBrowserSession : IAsyncDisposable
 
     public IPage Page { get; }
 
-    private StealthBrowserSession(IPlaywright playwright, IBrowser browser, IBrowserContext context, IPage page)
+    private StealthBrowser(IPlaywright playwright, IBrowser browser, IBrowserContext context, IPage page)
     {
         _playwright = playwright;
         _browser = browser;
@@ -23,7 +18,10 @@ public sealed class StealthBrowserSession : IAsyncDisposable
         Page = page;
     }
 
-    public static async Task<StealthBrowserSession> LaunchAsync()
+    // Headful mode is required, not just preferred - the target site hard-blocks
+    // headless Chrome at the network layer even with these mitigations in place.
+    // Locally that needs a real display (WSL); in CI it runs under xvfb-run.
+    public static async Task<StealthBrowser> LaunchAsync()
     {
         var playwright = await Playwright.CreateAsync();
         var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
@@ -41,6 +39,10 @@ public sealed class StealthBrowserSession : IAsyncDisposable
             ViewportSize = new ViewportSize { Width = 1366, Height = 768 }
         });
 
+        // Masks the cheap, static automation signals (navigator.webdriver, missing
+        // chrome runtime, plugin/language fingerprints) that bot-detection scripts
+        // check for before any real interaction happens. Does not defeat
+        // behavioral analysis.
         await context.AddInitScriptAsync("""
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
@@ -62,7 +64,7 @@ public sealed class StealthBrowserSession : IAsyncDisposable
 
         var page = await context.NewPageAsync();
 
-        return new StealthBrowserSession(playwright, browser, context, page);
+        return new StealthBrowser(playwright, browser, context, page);
     }
 
     public async ValueTask DisposeAsync()

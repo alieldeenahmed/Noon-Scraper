@@ -13,6 +13,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<DiscountFlag> DiscountFlags => Set<DiscountFlag>();
 
+    public DbSet<CheckNowRequest> CheckNowRequests => Set<CheckNowRequest>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Product>()
@@ -48,6 +50,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasOne(d => d.TriggeringSnapshot)
             .WithMany()
             .HasForeignKey(d => d.TriggeringSnapshotId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<CheckNowRequest>()
+            .HasOne(c => c.Product)
+            .WithMany()
+            .HasForeignKey(c => c.ProductId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

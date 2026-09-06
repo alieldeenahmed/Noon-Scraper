@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 
-namespace NoonScraper.Api.Services;
+namespace NoonScraper.Crawler;
 
 // Noon only ever embeds the currently-selected offer in JSON-LD (a single
 // object, not the full list of sellers). The full list only renders after

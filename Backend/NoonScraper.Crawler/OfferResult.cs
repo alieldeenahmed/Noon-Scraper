@@ -1,4 +1,4 @@
-namespace NoonScraper.Api.Services;
+namespace NoonScraper.Crawler;
 
 public class OfferResult
 {

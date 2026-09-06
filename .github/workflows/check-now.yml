@@ -1,0 +1,46 @@
+name: Check Now
+
+# Triggered by the API's POST /api/products/{id}/check-now, via a
+# repository_dispatch call (see NoonScraper.Api/Services/GitHubDispatchService.cs).
+# The API has no browser available to it, so this workflow is what actually
+# performs the on-demand cross-merchant scrape - same reasoning as the daily
+# crawl, just triggered per-request instead of on a schedule.
+on:
+  repository_dispatch:
+    types: [check-now]
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    env:
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+
+    defaults:
+      run:
+        working-directory: Backend/NoonScraper.Crawler
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: Install Chrome for Playwright
+        run: dotnet run --configuration Release -- install chrome
+
+      - name: Install Playwright system dependencies
+        run: dotnet run --configuration Release -- install-deps
+
+      - name: Run check-now
+        run: >
+          xvfb-run --auto-servernum
+          dotnet run --configuration Release -- check-now ${{ github.event.client_payload.requestId }}
+        env:
+          ConnectionStrings__DefaultConnection: ${{ secrets.DATABASE }}
