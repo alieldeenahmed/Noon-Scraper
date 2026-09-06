@@ -23,4 +23,6 @@ public class Product
     public DateTimeOffset AddedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public ICollection<PriceSnapshot> PriceSnapshots { get; set; } = [];
+
+    public ICollection<NotificationSubscription> NotificationSubscriptions { get; set; } = [];
 }

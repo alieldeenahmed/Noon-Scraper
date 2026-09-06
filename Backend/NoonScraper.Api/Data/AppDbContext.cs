@@ -9,6 +9,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<PriceSnapshot> PriceSnapshots => Set<PriceSnapshot>();
 
+    public DbSet<NotificationSubscription> NotificationSubscriptions => Set<NotificationSubscription>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Product>()
@@ -22,6 +24,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasOne(s => s.Product)
             .WithMany(p => p.PriceSnapshots)
             .HasForeignKey(s => s.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<NotificationSubscription>()
+            .HasIndex(n => new { n.ProductId, n.TelegramChatId })
+            .IsUnique();
+
+        modelBuilder.Entity<NotificationSubscription>()
+            .HasOne(n => n.Product)
+            .WithMany(p => p.NotificationSubscriptions)
+            .HasForeignKey(n => n.ProductId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }
