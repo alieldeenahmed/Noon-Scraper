@@ -37,6 +37,23 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+// TEMPORARY: surface exception details in the response body so we can
+// diagnose the Back4app deployment without access to a runtime log viewer.
+// Remove this before real traffic - it leaks stack traces/config publicly.
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "text/plain";
+        await context.Response.WriteAsync(ex.ToString());
+    }
+});
+
 app.UseHttpsRedirection();
 
 app.UseCors(FrontendCorsPolicy);
