@@ -11,6 +11,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<NotificationSubscription> NotificationSubscriptions => Set<NotificationSubscription>();
 
+    public DbSet<DiscountFlag> DiscountFlags => Set<DiscountFlag>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Product>()
@@ -34,6 +36,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasOne(n => n.Product)
             .WithMany(p => p.NotificationSubscriptions)
             .HasForeignKey(n => n.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<DiscountFlag>()
+            .HasOne(d => d.Product)
+            .WithMany(p => p.DiscountFlags)
+            .HasForeignKey(d => d.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<DiscountFlag>()
+            .HasOne(d => d.TriggeringSnapshot)
+            .WithMany()
+            .HasForeignKey(d => d.TriggeringSnapshotId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

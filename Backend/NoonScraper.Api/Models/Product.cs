@@ -25,4 +25,6 @@ public class Product
     public ICollection<PriceSnapshot> PriceSnapshots { get; set; } = [];
 
     public ICollection<NotificationSubscription> NotificationSubscriptions { get; set; } = [];
+
+    public ICollection<DiscountFlag> DiscountFlags { get; set; } = [];
 }
