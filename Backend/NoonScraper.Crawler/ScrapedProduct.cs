@@ -14,8 +14,10 @@ public class ScrapedProduct
 
     public decimal? Rating { get; set; }
 
-    // Noon's category listing tiles show no out-of-stock indicator in what we've
-    // observed, so this is always true for now - refine once an out-of-stock
-    // example is found.
+    public string? MerchantName { get; set; }
+
+    // Category listing tiles show no out-of-stock indicator, so CategoryScraper
+    // always leaves this true. ProductPageScraper sets it from the product detail
+    // page's actual availability data instead.
     public bool Stock { get; set; } = true;
 }

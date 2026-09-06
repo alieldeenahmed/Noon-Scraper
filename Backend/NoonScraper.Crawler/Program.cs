@@ -78,6 +78,49 @@ var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 // and neither would be found by a DB lookup until SaveChangesAsync actually runs.
 var productsInThisRun = new Dictionary<string, Product>();
 
+async Task<Product> UpsertAsync(ScrapedProduct item, ProductSource source, Category? category)
+{
+    if (!productsInThisRun.TryGetValue(item.Url, out var product))
+    {
+        product = await db.Products.FirstOrDefaultAsync(p => p.Url == item.Url);
+        if (product is null)
+        {
+            product = new Product
+            {
+                Url = item.Url,
+                Source = source,
+                IsActive = true
+            };
+            db.Products.Add(product);
+        }
+
+        productsInThisRun[item.Url] = product;
+    }
+
+    product.NoonProductId = item.NoonProductId;
+    product.Name = item.Name;
+    product.Rating = item.Rating;
+    if (category is not null)
+    {
+        product.Category = category;
+    }
+    if (item.MerchantName is not null)
+    {
+        product.MerchantName = item.MerchantName;
+    }
+
+    db.PriceSnapshots.Add(new PriceSnapshot
+    {
+        ProductId = product.Id,
+        Product = product,
+        Price = item.Price,
+        Stock = item.Stock,
+        DiscountPercent = item.DiscountPercent
+    });
+
+    return product;
+}
+
 foreach (var (category, url) in categoryUrls)
 {
     Console.WriteLine($"Scraping {category} at {url}");
@@ -105,35 +148,40 @@ foreach (var (category, url) in categoryUrls)
             continue;
         }
 
-        var product = await db.Products.FirstOrDefaultAsync(p => p.Url == item.Url);
-        if (product is null)
-        {
-            product = new Product
-            {
-                Url = item.Url,
-                Source = ProductSource.Seed,
-                IsActive = true
-            };
-            db.Products.Add(product);
-        }
-
-        productsInThisRun[item.Url] = product;
-
-        product.NoonProductId = item.NoonProductId;
-        product.Name = item.Name;
-        product.Category = category;
-        product.Rating = item.Rating;
-
-        db.PriceSnapshots.Add(new PriceSnapshot
-        {
-            ProductId = product.Id,
-            Product = product,
-            Price = item.Price,
-            Stock = item.Stock,
-            DiscountPercent = item.DiscountPercent
-        });
+        await UpsertAsync(item, ProductSource.Seed, category);
     }
 
+    await db.SaveChangesAsync();
+}
+
+// User-submitted products aren't covered by any of the 5 tracked category pages,
+// so they're kept up to date via their own detail page instead, every crawl.
+var userAddedProducts = await db.Products
+    .Where(p => p.Source == ProductSource.UserAdded && p.IsActive)
+    .ToListAsync();
+
+Console.WriteLine($"Scraping {userAddedProducts.Count} user-added product(s)");
+
+foreach (var product in userAddedProducts)
+{
+    ScrapedProduct? scraped;
+    try
+    {
+        scraped = await ProductPageScraper.ScrapeAsync(page, product.Url);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"  Failed to scrape {product.Url}: {ex.Message}");
+        continue;
+    }
+
+    if (scraped is null)
+    {
+        Console.WriteLine($"  No Product data found at {product.Url}");
+        continue;
+    }
+
+    await UpsertAsync(scraped, ProductSource.UserAdded, category: null);
     await db.SaveChangesAsync();
 }
 

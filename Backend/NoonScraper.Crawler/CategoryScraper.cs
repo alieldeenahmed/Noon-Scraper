@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
+using NoonScraper.Data;
 
 namespace NoonScraper.Crawler;
 
@@ -63,7 +64,7 @@ public static class CategoryScraper
             results.Add(new ScrapedProduct
             {
                 NoonProductId = noonProductId,
-                Url = new Uri(new Uri("https://www.noon.com"), href).ToString(),
+                Url = UrlNormalizer.Normalize(new Uri(new Uri("https://www.noon.com"), href).ToString()),
                 Name = name.Trim(),
                 Price = price,
                 DiscountPercent = discountPercent,

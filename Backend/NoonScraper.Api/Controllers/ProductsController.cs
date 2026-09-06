@@ -86,6 +86,54 @@ public class ProductsController(AppDbContext db) : ControllerBase
         return Ok(product);
     }
 
+    [HttpPost]
+    public async Task<ActionResult<ProductDetailDto>> CreateProduct(CreateProductRequestDto request)
+    {
+        if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||
+            !uri.Host.EndsWith("noon.com", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest("Url must be an absolute noon.com product URL.");
+        }
+
+        // Strips Noon's per-session tracking query string, so the same product
+        // submitted twice (with a different tracking token) is recognized as
+        // already tracked instead of creating a duplicate.
+        var normalizedUrl = UrlNormalizer.Normalize(request.Url);
+
+        var alreadyTracked = await db.Products.AnyAsync(p => p.Url == normalizedUrl);
+        if (alreadyTracked)
+        {
+            return Conflict("This product is already tracked.");
+        }
+
+        // Only the URL is known until the next crawl fills in the rest.
+        var product = new Product
+        {
+            Url = normalizedUrl,
+            Source = ProductSource.UserAdded,
+            IsActive = true
+        };
+
+        db.Products.Add(product);
+        await db.SaveChangesAsync();
+
+        var dto = new ProductDetailDto
+        {
+            Id = product.Id,
+            Url = product.Url,
+            NoonProductId = product.NoonProductId,
+            Name = product.Name,
+            Category = product.Category,
+            MerchantName = product.MerchantName,
+            Rating = product.Rating,
+            Source = product.Source,
+            IsActive = product.IsActive,
+            AddedAt = product.AddedAt
+        };
+
+        return CreatedAtAction(nameof(GetProduct), new { id = product.Id }, dto);
+    }
+
     [HttpGet("{id:int}/history")]
     public async Task<ActionResult<List<PriceSnapshotDto>>> GetProductHistory(int id)
     {
