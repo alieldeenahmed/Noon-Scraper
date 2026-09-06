@@ -7,6 +7,16 @@ using NoonScraper.Crawler;
 using NoonScraper.Data;
 using NoonScraper.Data.Models;
 
+// Passthrough to Playwright's own CLI (`install`/`install-deps`), since Linux
+// environments (this project's WSL dev setup, and the GitHub Actions runner)
+// have no PowerShell to run the generated playwright.ps1 script. Playwright.ps1
+// itself does nothing but load Microsoft.Playwright.dll and call this same
+// method, so calling it directly needs no extra tooling.
+if (args.Length > 0 && (args[0] == "install" || args[0] == "install-deps"))
+{
+    Environment.Exit(Microsoft.Playwright.Program.Main(args));
+}
+
 var builder = Host.CreateApplicationBuilder(args);
 
 // Host.CreateApplicationBuilder only auto-loads user secrets when the environment

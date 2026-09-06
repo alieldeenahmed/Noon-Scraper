@@ -1,0 +1,52 @@
+name: Daily Crawl
+
+on:
+  schedule:
+    # 03:00 UTC daily - outside typical peak traffic hours for the site being crawled.
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  crawl:
+    # Pinned explicitly rather than ubuntu-latest: Playwright's dependency installer
+    # doesn't always support the newest Ubuntu release the moment it ships (hit this
+    # locally - see docs/engineering-log.md #4), so this stays on a version known to work.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    env:
+      # Defensive: a bare Ubuntu install can be missing libicu, which crashes the
+      # .NET runtime at startup (hit this in local WSL setup - see
+      # docs/engineering-log.md). Harmless no-op if the runner already has it,
+      # since the code already uses CultureInfo.InvariantCulture everywhere.
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+
+    defaults:
+      run:
+        working-directory: Backend/NoonScraper.Crawler
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: Install Chrome for Playwright
+        run: dotnet run --configuration Release -- install chrome
+
+      - name: Install Playwright system dependencies
+        # Includes xvfb among the ~200 packages it pulls in, which the next step needs.
+        run: dotnet run --configuration Release -- install-deps
+
+      - name: Run crawler
+        # Headless Chrome is hard-blocked by the target site's anti-bot protection at
+        # the network layer (see docs/engineering-log.md #2) - xvfb-run gives headful
+        # Chrome a virtual display on this display-less runner instead.
+        run: xvfb-run --auto-servernum dotnet run --configuration Release
+        env:
+          ConnectionStrings__DefaultConnection: ${{ secrets.DATABASE_URL }}

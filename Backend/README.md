@@ -87,10 +87,10 @@ The Crawler and the API's `check-now` endpoint both launch a real, visible (head
 
 ## Current status
 
-**Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping, restock detection, fake-discount detection, on-demand cross-merchant check-now.
+**Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping, restock detection, fake-discount detection, on-demand cross-merchant check-now, and a scheduled GitHub Actions workflow that runs the crawl automatically once a day.
 
-**Not yet built:** Telegram notifications (the model exists, the send logic doesn't), the actual GitHub Actions cron schedule (the crawler works, but nothing runs it automatically yet), and deployment to Render.
+**Not yet built:** Telegram notifications (the model exists, the send logic doesn't), and deployment to Render.
 
 **Explicitly out of scope for V1:** crawling Noon's full catalog (only tracked products, seeded + user-submitted), anything behind login/checkout, a seasonal "best time to buy" predictor (needs months of data this project doesn't have yet), and treating cross-merchant comparison as a continuous background feature rather than an on-demand action.
 
-See [`docs/database-setup.md`](docs/database-setup.md) for how the database is provisioned, and [`docs/engineering-log.md`](docs/engineering-log.md) for a full account of the technical obstacles this project ran into and how each one got resolved — including the anti-bot investigation, a local Windows tooling blocker, a real data-integrity bug, and how the pricing/offer data actually gets extracted.
+See [`docs/database-setup.md`](docs/database-setup.md) for how the database is provisioned, [`docs/scheduled-crawl.md`](docs/scheduled-crawl.md) for how the daily automated crawl is set up, and [`docs/engineering-log.md`](docs/engineering-log.md) for a full account of the technical obstacles this project ran into and how each one got resolved — including the anti-bot investigation, a local Windows tooling blocker, a real data-integrity bug, and how the pricing/offer data actually gets extracted.
