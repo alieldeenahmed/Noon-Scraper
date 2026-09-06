@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using NoonScraper.Api.Data;
+using NoonScraper.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 

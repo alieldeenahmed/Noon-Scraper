@@ -3,12 +3,12 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using NoonScraper.Api.Data;
+using NoonScraper.Data;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace NoonScraper.Api.Migrations
+namespace NoonScraper.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
     partial class AppDbContextModelSnapshot : ModelSnapshot
@@ -22,7 +22,7 @@ namespace NoonScraper.Api.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("NoonScraper.Api.Models.DiscountFlag", b =>
+            modelBuilder.Entity("NoonScraper.Data.Models.DiscountFlag", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -60,7 +60,7 @@ namespace NoonScraper.Api.Migrations
                     b.ToTable("DiscountFlags");
                 });
 
-            modelBuilder.Entity("NoonScraper.Api.Models.NotificationSubscription", b =>
+            modelBuilder.Entity("NoonScraper.Data.Models.NotificationSubscription", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -91,7 +91,7 @@ namespace NoonScraper.Api.Migrations
                     b.ToTable("NotificationSubscriptions");
                 });
 
-            modelBuilder.Entity("NoonScraper.Api.Models.PriceSnapshot", b =>
+            modelBuilder.Entity("NoonScraper.Data.Models.PriceSnapshot", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -121,7 +121,7 @@ namespace NoonScraper.Api.Migrations
                     b.ToTable("PriceSnapshots");
                 });
 
-            modelBuilder.Entity("NoonScraper.Api.Models.Product", b =>
+            modelBuilder.Entity("NoonScraper.Data.Models.Product", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -165,15 +165,15 @@ namespace NoonScraper.Api.Migrations
                     b.ToTable("Products");
                 });
 
-            modelBuilder.Entity("NoonScraper.Api.Models.DiscountFlag", b =>
+            modelBuilder.Entity("NoonScraper.Data.Models.DiscountFlag", b =>
                 {
-                    b.HasOne("NoonScraper.Api.Models.Product", "Product")
+                    b.HasOne("NoonScraper.Data.Models.Product", "Product")
                         .WithMany("DiscountFlags")
                         .HasForeignKey("ProductId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("NoonScraper.Api.Models.PriceSnapshot", "TriggeringSnapshot")
+                    b.HasOne("NoonScraper.Data.Models.PriceSnapshot", "TriggeringSnapshot")
                         .WithMany()
                         .HasForeignKey("TriggeringSnapshotId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -184,9 +184,9 @@ namespace NoonScraper.Api.Migrations
                     b.Navigation("TriggeringSnapshot");
                 });
 
-            modelBuilder.Entity("NoonScraper.Api.Models.NotificationSubscription", b =>
+            modelBuilder.Entity("NoonScraper.Data.Models.NotificationSubscription", b =>
                 {
-                    b.HasOne("NoonScraper.Api.Models.Product", "Product")
+                    b.HasOne("NoonScraper.Data.Models.Product", "Product")
                         .WithMany("NotificationSubscriptions")
                         .HasForeignKey("ProductId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -195,9 +195,9 @@ namespace NoonScraper.Api.Migrations
                     b.Navigation("Product");
                 });
 
-            modelBuilder.Entity("NoonScraper.Api.Models.PriceSnapshot", b =>
+            modelBuilder.Entity("NoonScraper.Data.Models.PriceSnapshot", b =>
                 {
-                    b.HasOne("NoonScraper.Api.Models.Product", "Product")
+                    b.HasOne("NoonScraper.Data.Models.Product", "Product")
                         .WithMany("PriceSnapshots")
                         .HasForeignKey("ProductId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -206,7 +206,7 @@ namespace NoonScraper.Api.Migrations
                     b.Navigation("Product");
                 });
 
-            modelBuilder.Entity("NoonScraper.Api.Models.Product", b =>
+            modelBuilder.Entity("NoonScraper.Data.Models.Product", b =>
                 {
                     b.Navigation("DiscountFlags");
 

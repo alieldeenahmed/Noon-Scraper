@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using NoonScraper.Api.Models;
+using NoonScraper.Data.Models;
 
-namespace NoonScraper.Api.Data;
+namespace NoonScraper.Data;
 
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {

@@ -1,4 +1,4 @@
-namespace NoonScraper.Api.Models;
+namespace NoonScraper.Data.Models;
 
 public class Product
 {
