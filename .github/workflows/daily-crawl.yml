@@ -49,4 +49,4 @@ jobs:
         # Chrome a virtual display on this display-less runner instead.
         run: xvfb-run --auto-servernum dotnet run --configuration Release
         env:
-          ConnectionStrings__DefaultConnection: ${{ secrets.DATABASE_URL }}
+          ConnectionStrings__DefaultConnection: ${{ secrets.DATABASE }}

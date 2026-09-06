@@ -15,7 +15,7 @@ The daily crawl runs via [`.github/workflows/daily-crawl.yml`](../../.github/wor
 GitHub Actions can't know the database connection string on its own — it has to be added as a repository secret once:
 
 1. On GitHub: **Settings → Secrets and variables → Actions → New repository secret**.
-2. Name: `DATABASE_URL`.
+2. Name: `DATABASE` (the name is arbitrary — it just has to match whatever the workflow file references in `secrets.<name>`).
 3. Value: the same Npgsql-format connection string used locally (`Host=...;Database=...;Username=...;Password=...;SSL Mode=Require` — not the raw Neon `postgresql://` URI, see `database-setup.md` for why that distinction matters).
 
 Without this secret set, the workflow will run and fail at the crawl step with a connection error — everything before that (build, Chrome install) will still succeed, which is a useful way to tell the two failure modes apart if something goes wrong.
