@@ -109,14 +109,32 @@ async Task<Product> UpsertAsync(ScrapedProduct item, ProductSource source, Categ
         product.MerchantName = item.MerchantName;
     }
 
-    db.PriceSnapshots.Add(new PriceSnapshot
+    var isRestock = await PriceHistoryAnalyzer.IsRestockAsync(db, product.Id, item.Stock);
+
+    var newSnapshot = new PriceSnapshot
     {
         ProductId = product.Id,
         Product = product,
         Price = item.Price,
         Stock = item.Stock,
         DiscountPercent = item.DiscountPercent
-    });
+    };
+    db.PriceSnapshots.Add(newSnapshot);
+
+    if (isRestock)
+    {
+        Console.WriteLine($"  RESTOCK: {product.Name ?? product.Url}");
+    }
+
+    var fakeDiscount = await PriceHistoryAnalyzer.DetectFakeDiscountAsync(
+        db, product, newSnapshot, item.Price, item.DiscountPercent);
+    if (fakeDiscount is not null)
+    {
+        db.DiscountFlags.Add(fakeDiscount);
+        Console.WriteLine(
+            $"  SUSPICIOUS DISCOUNT: {product.Name ?? product.Url} - claims {item.DiscountPercent}% off, " +
+            $"but {fakeDiscount.DiscountedPrice} doesn't beat the historical low");
+    }
 
     return product;
 }
