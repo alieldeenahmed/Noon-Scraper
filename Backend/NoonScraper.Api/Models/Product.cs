@@ -21,4 +21,6 @@ public class Product
     public bool IsActive { get; set; } = true;
 
     public DateTimeOffset AddedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public ICollection<PriceSnapshot> PriceSnapshots { get; set; } = [];
 }
