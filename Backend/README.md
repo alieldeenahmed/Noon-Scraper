@@ -2,6 +2,8 @@
 
 An ASP.NET Core backend that tracks prices and stock on [noon.com](https://www.noon.com) (the largest e-commerce platform in the MENA region), with rule-based restock and fake-discount detection, and a live cross-merchant price comparison endpoint.
 
+**Live:** [noonscraper-0v70vtd1.b4a.run](https://noonscraper-0v70vtd1.b4a.run/api/products) (e.g. `GET /api/products`)
+
 ## Why this project exists
 
 This started as a scraper targeting TikTok, which got blocked outright by TikTok's anti-bot defenses almost immediately. Rather than abandon the idea, I pivoted to Noon: it has no official public API, but only moderate anti-bot protection compared to something like TikTok or LinkedIn — a realistic mid-difficulty target. Harder than scraping a site with an open JSON API (Reddit, Hacker News), easier than the hardest-to-automate platforms.
@@ -35,8 +37,13 @@ I split it this way because the Crawler and the API run in genuinely different e
 
 - **.NET 9** / ASP.NET Core Web API
 - **EF Core** + **Npgsql** against **PostgreSQL on Neon** (chosen specifically because it's reachable from GitHub Actions runners — a local Postgres instance or Render's free Postgres, which expires after 90 days, wouldn't work for a scheduled cloud cron job)
-- **Playwright** (real Chrome, not headless — see the engineering log) for scraping
+- **Playwright** (real Chrome, not headless — see the engineering log) for scraping — this lives entirely in `NoonScraper.Crawler` now, not the API (see "Where scraping actually happens" below)
 - **WSL2 (Ubuntu 24.04)** as the local dev/test environment for anything that launches a browser — required due to a Windows-specific blocker, also explained in the engineering log
+- **Back4app Containers** hosts the API itself — a free tier with no credit card required, deploying `Backend/Dockerfile` straight from this GitHub repo. See `docs/hosting.md`.
+
+### Where scraping actually happens
+
+The API never launches a browser. Both the daily crawl and the on-demand "check now" comparison run as `NoonScraper.Crawler` invocations inside GitHub Actions — the only place a real, visible Chrome instance is available — and write their results to Neon. `POST /api/products/{id}/check-now` just creates a `CheckNowRequest` row and fires a `repository_dispatch` event to trigger `check-now.yml`; the client polls a second endpoint for the result. This is deliberate: keeping the API itself Chrome-free is what let it host on a free, card-free tier at all. See `docs/check-now.md` and the engineering log for why this changed from an earlier in-process design.
 
 ## Getting started
 
@@ -44,7 +51,7 @@ I split it this way because the Crawler and the API run in genuinely different e
 
 - [.NET 9 SDK](https://dotnet.microsoft.com/download)
 - A [Neon](https://neon.tech) Postgres project
-- **For running the Crawler or the API's `check-now` endpoint specifically**: WSL2 with Ubuntu 24.04, Google Chrome, and Playwright's system dependencies installed. Plain read endpoints on the API don't need any of this — only code paths that actually launch a browser do. See `docs/database-setup.md` and the engineering log for the full setup.
+- **For running the Crawler specifically** (the only project that launches a browser): WSL2 with Ubuntu 24.04, Google Chrome, and Playwright's system dependencies installed. The API needs none of this — it never launches Chrome, even for `check-now` (see "Where scraping actually happens" above). See `docs/database-setup.md` and the engineering log for the full setup.
 
 ### Configuration
 
@@ -56,7 +63,7 @@ dotnet user-secrets init
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "<your Neon connection string>"
 ```
 
-In CI, the same key is read from an environment variable (`ConnectionStrings__DefaultConnection`) instead — the config system picks either up automatically.
+In CI (GitHub Actions) and in the Crawler's own config, the same key is read from an environment variable (`ConnectionStrings__DefaultConnection`) instead — the config system picks either up automatically. The API's hosting platform (Back4app) doesn't allow that double-underscore naming in its environment-variable UI, so the API additionally falls back to a flat `DATABASE` variable if `ConnectionStrings__DefaultConnection` isn't set — see `docs/hosting.md`.
 
 ### Running things
 
@@ -73,7 +80,7 @@ cd NoonScraper.Crawler
 dotnet run
 ```
 
-The Crawler and the API's `check-now` endpoint both launch a real, visible (headful) Chrome instance — this only works from an environment with a display, which is why WSL2 is required locally (see the engineering log for exactly why headless doesn't work here).
+The Crawler launches a real, visible (headful) Chrome instance — this only works from an environment with a display, which is why WSL2 is required locally (see the engineering log for exactly why headless doesn't work here). The API itself never does this, on any code path.
 
 ## API reference
 
@@ -83,14 +90,15 @@ The Crawler and the API's `check-now` endpoint both launch a real, visible (head
 | `GET` | `/api/products/{id}` | Full detail for one product |
 | `GET` | `/api/products/{id}/history` | Full price/stock history for one product |
 | `POST` | `/api/products` | Submit a URL to track (`{ "url": "..." }`) — validates it's a noon.com link, normalizes it, rejects duplicates, inserts a bare record that the next crawl fills in |
-| `POST` | `/api/products/{id}/check-now` | Live, on-demand cross-merchant price check — scrapes the product's page right now (not from stored data) and returns every competing seller's price, sorted lowest first |
+| `POST` | `/api/products/{id}/check-now` | Kicks off a live, on-demand cross-merchant price check via GitHub Actions (see "Where scraping actually happens" above) — returns `202 Accepted` with a `requestId` immediately, doesn't scrape inline |
+| `GET` | `/api/products/{id}/check-now/{requestId}` | Poll for that check's result — `Status` is `Pending`, `Completed`, or `Failed`; once `Completed`, `Offers` holds every seller's price sorted lowest first |
 
 ## Current status
 
-**Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping, restock detection, fake-discount detection, on-demand cross-merchant check-now, and a scheduled GitHub Actions workflow that runs the crawl automatically once a day.
+**Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping, restock detection, fake-discount detection, on-demand cross-merchant check-now (via GitHub Actions), a scheduled GitHub Actions workflow that runs the crawl automatically once a day, and a live deployment of the API on Back4app.
 
-**Not yet built:** Telegram notifications (the model exists, the send logic doesn't), and deployment to Render.
+**Not yet built:** Telegram notifications (the model exists, the send logic doesn't).
 
 **Explicitly out of scope for V1:** crawling Noon's full catalog (only tracked products, seeded + user-submitted), anything behind login/checkout, a seasonal "best time to buy" predictor (needs months of data this project doesn't have yet), and treating cross-merchant comparison as a continuous background feature rather than an on-demand action.
 
-See [`docs/database-setup.md`](docs/database-setup.md) for how the database is provisioned, [`docs/scheduled-crawl.md`](docs/scheduled-crawl.md) for how the daily automated crawl is set up, and [`docs/engineering-log.md`](docs/engineering-log.md) for a full account of the technical obstacles this project ran into and how each one got resolved — including the anti-bot investigation, a local Windows tooling blocker, a real data-integrity bug, and how the pricing/offer data actually gets extracted.
+See [`docs/database-setup.md`](docs/database-setup.md) for how the database is provisioned, [`docs/scheduled-crawl.md`](docs/scheduled-crawl.md) for how the daily automated crawl is set up, [`docs/check-now.md`](docs/check-now.md) for how the on-demand cross-merchant check works, [`docs/hosting.md`](docs/hosting.md) for how the API is deployed, and [`docs/engineering-log.md`](docs/engineering-log.md) for a full account of the technical obstacles this project ran into and how each one got resolved — including the anti-bot investigation, a local Windows tooling blocker, a real data-integrity bug, how the pricing/offer data actually gets extracted, and the hosting search that led to Back4app.

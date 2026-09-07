@@ -20,6 +20,8 @@ GitHub Actions can't know the database connection string on its own — it has t
 
 Without this secret set, the workflow will run and fail at the crawl step with a connection error — everything before that (build, Chrome install) will still succeed, which is a useful way to tell the two failure modes apart if something goes wrong.
 
+The same `DATABASE` secret is also used by [`check-now.yml`](../../.github/workflows/check-now.yml), the on-demand counterpart to this workflow — see `check-now.md`.
+
 ## Schedule and manual runs
 
 The cron trigger (`0 3 * * *`, 03:00 UTC daily) is intentionally outside typical peak traffic hours for the site being crawled. The workflow also accepts `workflow_dispatch`, so it can be triggered manually from the Actions tab for testing without waiting for the schedule.

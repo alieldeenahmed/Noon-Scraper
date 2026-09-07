@@ -119,10 +119,38 @@ Two things worth noting from this investigation:
 
 **Result:** `OfferScraper` scrapes every seller card when the panel exists, and falls back to the JSON-LD default offer for genuinely single-seller products. This runs synchronously inside `POST /api/products/{id}/check-now` — meaning the API itself now launches its own headful Chrome session per request (via a `StealthBrowserSession` helper, the same stealth setup as the Crawler), not stored anywhere, since this is explicitly a one-off check rather than continuous background tracking. Verified against three real cases: a product with 3 competing sellers, a product that started single-seller in earlier testing but had gained a real second seller by the time I retested it, and a 404 for an untracked product ID.
 
-This also means deploying the API to Render will need to account for the same headful-Chrome requirement as the Crawler (#2) — almost certainly a custom Docker image with Xvfb rather than Render's default .NET runtime. That's an open item for the deployment step, not solved yet.
+This also means deploying the API will need to account for the same headful-Chrome requirement as the Crawler (#2) — almost certainly a custom Docker image with Xvfb rather than a plain .NET runtime. **Update:** it didn't end up needing that at all — see #11, where I removed the requirement instead of building around it.
+
+## 11. Moving check-now off the API entirely
+
+#10 left an open problem: the API launching its own headful Chrome session per `check-now` request meant deploying it needed the same Xvfb/Chrome setup as the Crawler — a real constraint on hosting options. Rather than solve that at the infrastructure level (a custom Docker image with Xvfb baked in, on whichever platform would allow it), I removed the constraint at the design level: `check-now` no longer scrapes in-process at all. `POST /check-now` now just writes a `CheckNowRequest` row and fires a `repository_dispatch` event to GitHub Actions — the same Chrome-capable environment the daily crawl already runs in — and the client polls a second endpoint for the result. `OfferScraper`/`OfferResult`/the stealth browser setup all moved out of the API and into `NoonScraper.Crawler`, which is the only project that still references Playwright at all. Full detail in `check-now.md`.
+
+This made the API a plain ASP.NET Core app with no Chrome/Docker requirement whatsoever — which is what made a genuinely free hosting tier possible in the first place (#12).
+
+## 12. The free-hosting search turned into its own investigation
+
+With the API now Chrome-free, the last blocker was hosting itself — and specifically, hosting without a credit card, which I don't have. This took real research to get right, because most "free tier, no card required" claims I found didn't hold up:
+
+- **Google Cloud Run** requires a billing account (and therefore a card) just to create a project, regardless of whether you end up inside the always-free quota.
+- **Fly.io** dropped its no-card free allowance; new accounts get a short trial, then a card is required to deploy at all.
+- **Render** documents free Web Services as not requiring a card — but in practice, signup asked for one anyway. (There's a recurring pattern in Render's own community forum of this happening specifically around Blueprint/`render.yaml` deploys, which is what I'd used; I didn't get to test whether a plain, manually-configured Web Service would have avoided it.)
+- **Koyeb, Railway, Clever Cloud, Scalingo** all offer a genuinely card-free *trial* (credit that runs out, or a fixed number of days), not a permanent free tier — easy to misread as "free forever" from a search result summary alone.
+
+**Back4app Containers** turned out to be the one platform with an ongoing (not trial-limited) free tier and no card at signup: 0.25 CPU / 256MB RAM / 100GB transfer per month, deploying an arbitrary Docker image straight from a GitHub repo. That last part mattered — it meant `Backend/Dockerfile`, already rewritten as a plain slim build once Chrome left the API, worked without changes.
+
+## 13. Debugging a live deployment with no error visibility
+
+The first real deploy to Back4app returned a bare `500` with an empty response body on every API route — no stack trace, no log line I could find anywhere in the dashboard's build/deploy log view (which is all the free tier exposed at the time). Rather than guess blindly, I added a temporary middleware directly to `Program.cs` that caught any unhandled exception and wrote `ex.ToString()` into the response body itself — turning `curl` into a log viewer. That surfaced the actual problem in stages:
+
+1. The `DATABASE`-equivalent connection string was set as Neon's raw `postgresql://...` URI, which Npgsql can't parse (`KeyNotFoundException` deep inside `NpgsqlConnectionStringBuilder`) — the same category of mistake as the local setup gotcha in `database-setup.md`, just hit again in a new environment.
+2. After reformatting it, the *next* error was `The ConnectionString property has not been initialized` — meaning the value wasn't reaching the app at all. It turned out Back4app's environment-variable UI rejects the double-underscore naming (`ConnectionStrings__DefaultConnection`) .NET normally expects, so the variable had silently been set under a different, flat name (`DATABASE`) instead. Fixed with an explicit fallback in `Program.cs`: try the standard config key first, then fall back to `DATABASE`.
+3. I added a second temporary endpoint (`/debug/env-keys`, listing environment variable *keys* only, never values) to confirm `DATABASE` was actually visible to the running container before chasing the wrong theory further.
+4. The final error was a one-character typo — `SSL Mode=Requir` instead of `Require` — caught by Npgsql's enum parser with a message that only makes sense once you know exactly which keyword to check.
+
+Along the way, a pasted error log briefly exposed the real Neon password in plaintext (Npgsql includes the full connection string in that specific exception's message) — a good reminder that "just show me the exception" isn't free of its own risk, and worth rotating the credential afterward rather than assuming a chat transcript is a safe place for it to have appeared even briefly.
+
+Both temporary debug additions (the exception-detail middleware and `/debug/env-keys`) were removed once the deployment was confirmed working end-to-end against the real database.
 
 ## Summary of what's still open
 
 - Telegram notifications (bot setup, chat-id capture, subscribe/unsubscribe, and the actual notify-on-event logic) — the data model exists, nothing sends a message yet.
-- The GitHub Actions cron workflow itself — the crawler works, but nothing runs it on a schedule yet. It'll need Ubuntu 24.04 pinned explicitly (not `ubuntu-latest`, per #4), Xvfb (per #2), and Chrome + its system dependencies installed fresh each run.
-- Render deployment for the API, complicated by the headful-Chrome requirement from #10.
