@@ -1,1 +1,22 @@
 @import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Manrope', sans-serif;
+
+  /* Primary: sandy yellow, the page's dominant color. */
+  --color-brand-300: #fff48a;
+  --color-brand-400: #ffef4d;
+  --color-brand-500: #ffef4d;
+  --color-brand-600: #e6d634;
+
+  /* Secondary/accent: ebony clay - card surfaces, and anything that needs
+     to read as "structure" against the primary. */
+  --color-ink-900: #1f3170;
+  --color-ink-800: #2a428c;
+  --color-ink-700: #3d5aa8;
+}
+
+body {
+  background-color: #ffef4d;
+  color: #1f3170;
+}

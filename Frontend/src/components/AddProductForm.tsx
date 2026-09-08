@@ -30,8 +30,8 @@ export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 bg-white p-4">
-      <label htmlFor="product-url" className="block text-sm font-medium text-slate-700">
+    <form onSubmit={handleSubmit} className="rounded-lg border border-brand-500/20 bg-ink-800 p-4">
+      <label htmlFor="product-url" className="block text-xs tracking-wide text-white/50 uppercase">
         Track a new product
       </label>
       <div className="mt-2 flex gap-2">
@@ -42,18 +42,18 @@ export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
           placeholder="https://www.noon.com/egypt-en/..."
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+          className="flex-1 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-brand-400/60 focus:outline-none"
         />
         <button
           type="submit"
           disabled={status === 'submitting'}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
+          className="rounded-md bg-brand-400 px-4 py-2 text-sm font-medium text-ink-900 transition hover:bg-brand-300 disabled:opacity-40"
         >
           {status === 'submitting' ? 'Adding…' : 'Add'}
         </button>
       </div>
       {message && (
-        <p className={`mt-2 text-sm ${message.tone === 'error' ? 'text-red-600' : 'text-emerald-600'}`}>
+        <p className={`mt-2 text-sm ${message.tone === 'error' ? 'text-red-400' : 'text-brand-300'}`}>
           {message.text}
         </p>
       )}

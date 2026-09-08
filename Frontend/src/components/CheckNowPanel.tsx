@@ -48,48 +48,46 @@ export default function CheckNowPanel({ productId }: { productId: number }) {
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-lg border border-brand-500/20 bg-ink-800 p-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-medium text-slate-900">Cross-merchant check</h2>
+        <h2 className="font-light text-white">Cross-merchant check</h2>
         <button
           onClick={handleCheckNow}
           disabled={running}
-          className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-50"
+          className="rounded-md bg-brand-400 px-3 py-1.5 text-sm font-medium text-ink-900 transition hover:bg-brand-300 disabled:opacity-40"
         >
           {running ? 'Checking…' : 'Check now'}
         </button>
       </div>
 
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
       {running && !result && !error && (
-        <p className="mt-3 text-sm text-slate-500">
+        <p className="mt-3 text-sm text-white/40">
           Kicking off a live scrape via GitHub Actions — this can take a couple minutes.
         </p>
       )}
 
-      {result?.status === 'Pending' && (
-        <p className="mt-3 text-sm text-slate-500">Still running…</p>
-      )}
+      {result?.status === 'Pending' && <p className="mt-3 text-sm text-white/40">Still running…</p>}
 
       {result?.status === 'Failed' && (
-        <p className="mt-3 text-sm text-red-600">Check failed: {result.errorMessage}</p>
+        <p className="mt-3 text-sm text-red-400">Check failed: {result.errorMessage}</p>
       )}
 
       {result?.status === 'Completed' && (
         <div className="mt-3 space-y-2">
           {result.offers?.length === 0 ? (
-            <p className="text-sm text-slate-500">No other sellers found for this product.</p>
+            <p className="text-sm text-white/40">No other sellers found for this product.</p>
           ) : (
             <table className="w-full text-sm">
               <tbody>
                 {result.offers?.map((offer, i) => (
-                  <tr key={i} className="border-t border-slate-100 first:border-0">
-                    <td className="py-1.5">
+                  <tr key={i} className="border-t border-white/10 first:border-0">
+                    <td className="py-1.5 text-white/80">
                       {offer.merchantName}
-                      {offer.rating != null && <span className="ml-1 text-slate-400">★ {offer.rating}</span>}
+                      {offer.rating != null && <span className="ml-1 text-white/30">★ {offer.rating}</span>}
                     </td>
-                    <td className="py-1.5 text-right font-medium">{formatPrice(offer.price)}</td>
+                    <td className="py-1.5 text-right text-white">{formatPrice(offer.price)}</td>
                   </tr>
                 ))}
               </tbody>

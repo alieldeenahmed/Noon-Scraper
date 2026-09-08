@@ -7,7 +7,7 @@ const PADDING = 8
 
 export default function PriceHistoryChart({ history }: { history: PriceSnapshot[] }) {
   if (history.length < 2) {
-    return <p className="text-sm text-slate-500">Not enough history yet for a chart.</p>
+    return <p className="text-sm text-white/40">Not enough history yet for a chart.</p>
   }
 
   const prices = history.map((h) => h.price)
@@ -26,16 +26,16 @@ export default function PriceHistoryChart({ history }: { history: PriceSnapshot[
   return (
     <div>
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full" role="img" aria-label="Price history chart">
-        <path d={path} fill="none" stroke="#0f172a" strokeWidth={2} />
+        <path d={path} fill="none" stroke="#ffef4d" strokeWidth={1.5} />
         {points.map((p, i) => (
-          <circle key={i} cx={p.x} cy={p.y} r={2.5} fill="#0f172a">
+          <circle key={i} cx={p.x} cy={p.y} r={2.5} fill="#ffef4d">
             <title>
               {formatPrice(p.snapshot.price)} — {formatDate(p.snapshot.crawledAt)}
             </title>
           </circle>
         ))}
       </svg>
-      <div className="mt-1 flex justify-between text-xs text-slate-400">
+      <div className="mt-1 flex justify-between text-xs text-white/30">
         <span>{formatPrice(min)}</span>
         <span>{formatPrice(max)}</span>
       </div>

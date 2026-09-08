@@ -7,26 +7,29 @@ export default function ProductCard({ product }: { product: ProductListItem }) {
   return (
     <Link
       to={`/products/${product.id}`}
-      className="block min-w-0 rounded-lg border border-slate-200 bg-white p-4 transition hover:border-slate-300 hover:shadow-sm"
+      className="flex min-w-0 flex-col rounded-xl border border-ink-900/10 bg-ink-800 p-5 transition hover:border-brand-400/60 hover:shadow-[0_0_0_1px_rgba(255,239,77,0.15)]"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-slate-900">{product.name ?? product.url}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <Badge>{formatCategory(product.category)}</Badge>
-            {product.merchantName && <Badge tone="purple">{product.merchantName}</Badge>}
-            {product.latestStock === false && <Badge tone="red">Out of stock</Badge>}
-            {product.latestDiscountPercent != null && (
-              <Badge tone="green">-{product.latestDiscountPercent}%</Badge>
-            )}
-          </div>
-        </div>
-        <div className="shrink-0 text-right">
-          <p className="text-lg font-semibold text-slate-900">{formatPrice(product.latestPrice)}</p>
-          {product.rating != null && <p className="text-sm text-slate-500">★ {product.rating}</p>}
-        </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge>{formatCategory(product.category)}</Badge>
+        {product.latestStock === false && <Badge dot="red">Out of stock</Badge>}
       </div>
-      <p className="mt-3 text-xs text-slate-400">Last crawled {formatDate(product.lastCrawledAt)}</p>
+
+      <p className="mt-3 line-clamp-2 flex-1 text-white">{product.name ?? product.url}</p>
+
+      <div className="mt-4 flex items-end justify-between">
+        <div>
+          <p className="text-xl font-light tracking-tight text-white">{formatPrice(product.latestPrice)}</p>
+          {product.latestDiscountPercent != null && (
+            <p className="mt-0.5 text-sm text-brand-400">-{product.latestDiscountPercent}% off</p>
+          )}
+        </div>
+        {product.rating != null && <p className="text-sm text-white/40">★ {product.rating}</p>}
+      </div>
+
+      <p className="mt-3 text-xs text-white/30">
+        {product.merchantName ? `${product.merchantName} · ` : ''}
+        Last crawled {formatDate(product.lastCrawledAt)}
+      </p>
     </Link>
   )
 }

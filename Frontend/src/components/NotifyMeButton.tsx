@@ -14,7 +14,7 @@ export default function NotifyMeButton({ productId }: { productId: number }) {
       href={`https://t.me/${BOT_USERNAME}?start=${productId}`}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+      className="flex w-full items-center justify-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white transition hover:border-brand-400/50 hover:bg-white/10"
     >
       Notify me on Telegram
     </a>

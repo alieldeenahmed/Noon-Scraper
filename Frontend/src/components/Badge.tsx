@@ -1,18 +1,20 @@
 import type { ReactNode } from 'react'
 
-type Tone = 'neutral' | 'green' | 'red' | 'amber' | 'purple'
+type Dot = 'red' | 'brand'
 
-const toneClasses: Record<Tone, string> = {
-  neutral: 'bg-slate-100 text-slate-700',
-  green: 'bg-emerald-100 text-emerald-700',
-  red: 'bg-red-100 text-red-700',
-  amber: 'bg-amber-100 text-amber-800',
-  purple: 'bg-purple-100 text-purple-700',
+const dotClasses: Record<Dot, string> = {
+  red: 'bg-red-400',
+  brand: 'bg-brand-400',
 }
 
-export default function Badge({ tone = 'neutral', children }: { tone?: Tone; children: ReactNode }) {
+// Sits on dark card surfaces (see ProductCard/ProductDetailPage) - translucent
+// white fill/border reads correctly there regardless of the page's own
+// (yellow) background. A dot is the only way a badge stands out - reserved
+// for states worth noticing.
+export default function Badge({ dot, children }: { dot?: Dot; children: ReactNode }) {
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${toneClasses[tone]}`}>
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/70">
+      {dot && <span className={`h-1.5 w-1.5 rounded-full ${dotClasses[dot]}`} />}
       {children}
     </span>
   )
