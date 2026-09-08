@@ -32,6 +32,7 @@ I split it this way because the Crawler and the API run in genuinely different e
 - **`PriceSnapshot`** — one row per crawl per product: `Price`, `Stock`, `DiscountPercent`, `CrawledAt`. This is the time series everything else is built on.
 - **`NotificationSubscription`** — links a Telegram `chat_id` to a product, plus `LastNotifiedPrice`/`LastNotifiedAt` (the baseline the notifier compares each new price against). See `docs/telegram-notifications.md`.
 - **`DiscountFlag`** — written when the fake-discount detector fires: the inflated "before" price, when it was seen, the discounted price, and the snapshot that triggered the flag.
+- **`RestockEvent`** — written whenever a product flips from out-of-stock to in-stock: which snapshot confirmed it, and when. Previously this was only a console log line during the crawl with no queryable record at all.
 
 ### Tech stack
 
@@ -92,6 +93,7 @@ The Crawler launches a real, visible (headful) Chrome instance — this only wor
 | `GET` | `/api/products/{id}` | Full detail for one product |
 | `GET` | `/api/products/{id}/history` | Full price/stock history for one product |
 | `GET` | `/api/products/{id}/discount-flags` | Every fake-discount flag raised for this product (prior high price, discounted price, when each was detected), most recent first |
+| `GET` | `/api/products/{id}/restocks` | Every time this product went from out-of-stock to in-stock, most recent first |
 | `POST` | `/api/products` | Submit a URL to track (`{ "url": "..." }`) — validates it's a noon.com link, normalizes it, rejects duplicates, inserts a bare record that the next crawl fills in |
 | `POST` | `/api/products/{id}/check-now` | Kicks off a live, on-demand cross-merchant price check via GitHub Actions (see "Where scraping actually happens" above) — returns `202 Accepted` with a `requestId` immediately, doesn't scrape inline |
 | `GET` | `/api/products/{id}/check-now/{requestId}` | Poll for that check's result — `Status` is `Pending`, `Completed`, or `Failed`; once `Completed`, `Offers` holds every seller's price sorted lowest first |

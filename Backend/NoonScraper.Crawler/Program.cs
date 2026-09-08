@@ -151,6 +151,13 @@ async Task<Product> UpsertAsync(ScrapedProduct item, ProductSource source, Categ
     if (isRestock)
     {
         Console.WriteLine($"  RESTOCK: {product.Name ?? product.Url}");
+        db.RestockEvents.Add(new RestockEvent
+        {
+            ProductId = product.Id,
+            Product = product,
+            TriggeringSnapshotId = newSnapshot.Id,
+            TriggeringSnapshot = newSnapshot
+        });
     }
 
     var fakeDiscount = await PriceHistoryAnalyzer.DetectFakeDiscountAsync(

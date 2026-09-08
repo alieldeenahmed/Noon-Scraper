@@ -185,6 +185,27 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
         return Ok(flags);
     }
 
+    [HttpGet("{id:int}/restocks")]
+    public async Task<ActionResult<List<RestockEventDto>>> GetRestockEvents(int id)
+    {
+        var productExists = await db.Products.AnyAsync(p => p.Id == id);
+        if (!productExists)
+        {
+            return NotFound();
+        }
+
+        var restocks = await db.RestockEvents
+            .Where(r => r.ProductId == id)
+            .OrderByDescending(r => r.DetectedAt)
+            .Select(r => new RestockEventDto
+            {
+                DetectedAt = r.DetectedAt
+            })
+            .ToListAsync();
+
+        return Ok(restocks);
+    }
+
     // On-demand cross-merchant comparison, done via GitHub Actions rather than
     // in-process - this API has no browser available to it, so it hands the
     // actual scrape off to the same Chrome-capable environment the daily crawl
