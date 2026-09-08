@@ -30,7 +30,7 @@ I split it this way because the Crawler and the API run in genuinely different e
 
 - **`Product`** — one row per tracked item. `Url` (normalized, no query string — see the engineering log for why that matters), `NoonProductId` (the SKU), `Name`, `MerchantName`, `Category`, `Rating`, `Source` (`Seed` or `UserAdded`), `IsActive`.
 - **`PriceSnapshot`** — one row per crawl per product: `Price`, `Stock`, `DiscountPercent`, `CrawledAt`. This is the time series everything else is built on.
-- **`NotificationSubscription`** — links a Telegram `chat_id` to a product (not wired up to actual notification-sending yet).
+- **`NotificationSubscription`** — links a Telegram `chat_id` to a product, plus `LastNotifiedPrice`/`LastNotifiedAt` (the baseline the notifier compares each new price against). See `docs/telegram-notifications.md`.
 - **`DiscountFlag`** — written when the fake-discount detector fires: the inflated "before" price, when it was seen, the discounted price, and the snapshot that triggered the flag.
 
 ### Tech stack
@@ -65,6 +65,8 @@ dotnet user-secrets set "ConnectionStrings:DefaultConnection" "<your Neon connec
 
 In CI (GitHub Actions) and in the Crawler's own config, the same key is read from an environment variable (`ConnectionStrings__DefaultConnection`) instead — the config system picks either up automatically. The API's hosting platform (Back4app) doesn't allow that double-underscore naming in its environment-variable UI, so the API additionally falls back to a flat `DATABASE` variable if `ConnectionStrings__DefaultConnection` isn't set — see `docs/hosting.md`.
 
+Telegram notifications need two more secrets, set the same way (`Telegram:BotToken` / `Telegram:WebhookSecret` locally, or the flat `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` anywhere that rejects the double-underscore naming) — see `docs/telegram-notifications.md`. Both are optional: with nothing configured, the app runs fine and notifications are just silently skipped.
+
 ### Running things
 
 ```bash
@@ -93,13 +95,14 @@ The Crawler launches a real, visible (headful) Chrome instance — this only wor
 | `POST` | `/api/products` | Submit a URL to track (`{ "url": "..." }`) — validates it's a noon.com link, normalizes it, rejects duplicates, inserts a bare record that the next crawl fills in |
 | `POST` | `/api/products/{id}/check-now` | Kicks off a live, on-demand cross-merchant price check via GitHub Actions (see "Where scraping actually happens" above) — returns `202 Accepted` with a `requestId` immediately, doesn't scrape inline |
 | `GET` | `/api/products/{id}/check-now/{requestId}` | Poll for that check's result — `Status` is `Pending`, `Completed`, or `Failed`; once `Completed`, `Offers` holds every seller's price sorted lowest first |
+| `POST` | `/api/telegram/webhook` | Receives Telegram's webhook updates — not called directly by a frontend. Handles `/start <productId>` (subscribe) and `/stop` (unsubscribe from everything) sent to the bot. See `docs/telegram-notifications.md` |
 
 ## Current status
 
-**Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping, restock detection, fake-discount detection, on-demand cross-merchant check-now (via GitHub Actions), a scheduled GitHub Actions workflow that runs the crawl automatically once a day, and a live deployment of the API on Back4app.
+**Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping, restock detection, fake-discount detection, on-demand cross-merchant check-now (via GitHub Actions), a scheduled GitHub Actions workflow that runs the crawl automatically once a day, Telegram subscribe/unsubscribe and restock/price-drop notifications, and a deployment of the API on Back4app.
 
-**Not yet built:** Telegram notifications (the model exists, the send logic doesn't).
+**Not yet done:** the Back4app deployment is currently unreachable (a hosting-platform reliability issue, not a code bug — see `docs/hosting.md`), and the Telegram bot itself hasn't been created/configured yet, so notifications are implemented but not live.
 
 **Explicitly out of scope for V1:** crawling Noon's full catalog (only tracked products, seeded + user-submitted), anything behind login/checkout, a seasonal "best time to buy" predictor (needs months of data this project doesn't have yet), and treating cross-merchant comparison as a continuous background feature rather than an on-demand action.
 
-See [`docs/database-setup.md`](docs/database-setup.md) for how the database is provisioned, [`docs/scheduled-crawl.md`](docs/scheduled-crawl.md) for how the daily automated crawl is set up, [`docs/check-now.md`](docs/check-now.md) for how the on-demand cross-merchant check works, [`docs/hosting.md`](docs/hosting.md) for how the API is deployed, and [`docs/engineering-log.md`](docs/engineering-log.md) for a full account of the technical obstacles this project ran into and how each one got resolved — including the anti-bot investigation, a local Windows tooling blocker, a real data-integrity bug, how the pricing/offer data actually gets extracted, and the hosting search that led to Back4app.
+See [`docs/database-setup.md`](docs/database-setup.md) for how the database is provisioned, [`docs/scheduled-crawl.md`](docs/scheduled-crawl.md) for how the daily automated crawl is set up, [`docs/check-now.md`](docs/check-now.md) for how the on-demand cross-merchant check works, [`docs/hosting.md`](docs/hosting.md) for how the API is deployed, [`docs/telegram-notifications.md`](docs/telegram-notifications.md) for how the notification subscribe flow and send logic work, and [`docs/engineering-log.md`](docs/engineering-log.md) for a full account of the technical obstacles this project ran into and how each one got resolved — including the anti-bot investigation, a local Windows tooling blocker, a real data-integrity bug, how the pricing/offer data actually gets extracted, and the hosting search that led to Back4app.

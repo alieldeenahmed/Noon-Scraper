@@ -22,6 +22,7 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
 
 builder.Services.AddHttpClient<GitHubDispatchService>();
+builder.Services.AddHttpClient<TelegramService>();
 
 builder.Services.AddCors(options =>
 {

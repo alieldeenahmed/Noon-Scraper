@@ -29,6 +29,8 @@ builder.Configuration.AddUserSecrets<Program>();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+builder.Services.AddHttpClient();
+
 using var host = builder.Build();
 
 // Invoked by the check-now.yml GitHub Actions workflow, triggered by the API
@@ -91,6 +93,12 @@ var page = stealthBrowser.Page;
 
 using var scope = host.Services.CreateScope();
 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+var httpClient = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>().CreateClient();
+
+// Same flat-variable fallback as the connection string - Back4app's
+// environment-variable UI rejects "__" hierarchical naming, so wherever this
+// ends up configured outside local user secrets, it'll need a flat name.
+var telegramBotToken = builder.Configuration["Telegram:BotToken"] ?? builder.Configuration["TELEGRAM_BOT_TOKEN"];
 
 // Tracks products already added in this run, since the same product can appear
 // in multiple widgets on one page (e.g. both "Best sellers" and "Shop all mobiles"),
@@ -154,6 +162,11 @@ async Task<Product> UpsertAsync(ScrapedProduct item, ProductSource source, Categ
             $"  SUSPICIOUS DISCOUNT: {product.Name ?? product.Url} - claims {item.DiscountPercent}% off, " +
             $"but {fakeDiscount.DiscountedPrice} doesn't beat the historical low");
     }
+
+    // A brand-new product has no NotificationSubscriptions rows yet (nobody
+    // could have subscribed to an id that didn't exist before this upsert),
+    // so this is a no-op for it - only matters for products already tracked.
+    await TelegramNotifier.NotifySubscribersAsync(db, httpClient, telegramBotToken, product, isRestock, item.Price);
 
     return product;
 }

@@ -50,3 +50,7 @@ jobs:
         run: xvfb-run --auto-servernum dotnet run --configuration Release
         env:
           ConnectionStrings__DefaultConnection: ${{ secrets.DATABASE }}
+          # Optional - notifications are silently skipped if unset (see
+          # docs/telegram-notifications.md). Env vars work fine with "__" here,
+          # unlike Back4app, so no flat-name fallback needed in this workflow.
+          Telegram__BotToken: ${{ secrets.TELEGRAM_BOT_TOKEN }}
