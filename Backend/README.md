@@ -89,6 +89,7 @@ The Crawler launches a real, visible (headful) Chrome instance — this only wor
 | `GET` | `/api/products` | List tracked products, optional `?category=` filter, includes each product's latest price/stock/discount |
 | `GET` | `/api/products/{id}` | Full detail for one product |
 | `GET` | `/api/products/{id}/history` | Full price/stock history for one product |
+| `GET` | `/api/products/{id}/discount-flags` | Every fake-discount flag raised for this product (prior high price, discounted price, when each was detected), most recent first |
 | `POST` | `/api/products` | Submit a URL to track (`{ "url": "..." }`) — validates it's a noon.com link, normalizes it, rejects duplicates, inserts a bare record that the next crawl fills in |
 | `POST` | `/api/products/{id}/check-now` | Kicks off a live, on-demand cross-merchant price check via GitHub Actions (see "Where scraping actually happens" above) — returns `202 Accepted` with a `requestId` immediately, doesn't scrape inline |
 | `GET` | `/api/products/{id}/check-now/{requestId}` | Poll for that check's result — `Status` is `Pending`, `Completed`, or `Failed`; once `Completed`, `Offers` holds every seller's price sorted lowest first |

@@ -160,6 +160,31 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
         return Ok(history);
     }
 
+    [HttpGet("{id:int}/discount-flags")]
+    public async Task<ActionResult<List<DiscountFlagDto>>> GetDiscountFlags(int id)
+    {
+        var productExists = await db.Products.AnyAsync(p => p.Id == id);
+        if (!productExists)
+        {
+            return NotFound();
+        }
+
+        var flags = await db.DiscountFlags
+            .Where(f => f.ProductId == id)
+            .OrderByDescending(f => f.DetectedAt)
+            .Select(f => new DiscountFlagDto
+            {
+                PriorHighPrice = f.PriorHighPrice,
+                PriorHighDetectedAt = f.PriorHighDetectedAt,
+                DiscountedPrice = f.DiscountedPrice,
+                DiscountPercent = f.DiscountPercent,
+                DetectedAt = f.DetectedAt
+            })
+            .ToListAsync();
+
+        return Ok(flags);
+    }
+
     // On-demand cross-merchant comparison, done via GitHub Actions rather than
     // in-process - this API has no browser available to it, so it hands the
     // actual scrape off to the same Chrome-capable environment the daily crawl
