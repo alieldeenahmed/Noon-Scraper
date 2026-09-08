@@ -15,7 +15,7 @@ No data-fetching library — the API surface is small enough that plain `fetch` 
 Create `.env` in this folder (the repo's root `.gitignore` blocks every `.env*` file, so there's no template to copy — this is the whole thing):
 
 ```bash
-VITE_API_BASE_URL=http://localhost:5080
+VITE_API_BASE_URL=http://localhost:5176
 VITE_TELEGRAM_BOT_USERNAME=
 ```
 
