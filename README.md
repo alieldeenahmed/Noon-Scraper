@@ -10,7 +10,7 @@ Noon Scraper/
 └── Frontend/    # Vite + React
 ```
 
-See `Backend/` and `Frontend/` for their own setup instructions once each is in place.
+See [`Backend/README.md`](Backend/README.md) and [`Frontend/README.md`](Frontend/README.md) for setup instructions.
 
 ## License
 
