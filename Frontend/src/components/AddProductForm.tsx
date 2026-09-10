@@ -34,7 +34,7 @@ export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
       <label htmlFor="product-url" className="block text-xs text-ink-300 lowercase">
         add an item
       </label>
-      <div className="mt-2 flex items-end gap-4">
+      <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
         <input
           id="product-url"
           type="url"

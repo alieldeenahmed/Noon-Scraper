@@ -18,3 +18,12 @@ body {
   background-color: #edeae0;
   color: #17160f;
 }
+
+/* Scroll still works via wheel/touch/keyboard - only the visible track is hidden. */
+html {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+html::-webkit-scrollbar {
+  display: none;
+}
