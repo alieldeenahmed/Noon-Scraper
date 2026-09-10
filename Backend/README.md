@@ -2,7 +2,7 @@
 
 An ASP.NET Core backend that tracks prices and stock on [noon.com](https://www.noon.com) (the largest e-commerce platform in the MENA region), with rule-based restock and fake-discount detection, and a live cross-merchant price comparison endpoint.
 
-**Live:** [noonscraper-dwfi2d0a.b4a.run](https://noonscraper-dwfi2d0a.b4a.run/api/products) (e.g. `GET /api/products`) — this URL changes whenever the Back4app container needs recreating (see `docs/hosting.md`); if this link is dead, that's why.
+**Live:** [noonscraper-iptric6o.b4a.run](https://noonscraper-iptric6o.b4a.run/api/products) (e.g. `GET /api/products`) — this URL changes whenever the Back4app container needs recreating (see `docs/hosting.md`); if this link is dead, that's why.
 
 ## Why this project exists
 
