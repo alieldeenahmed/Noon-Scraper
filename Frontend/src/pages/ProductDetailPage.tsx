@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router'
 import { getDiscountFlags, getProduct, getProductHistory, getRestockEvents } from '../api/client'
 import type { DiscountFlag, PriceSnapshot, ProductDetail, RestockEvent } from '../api/types'
