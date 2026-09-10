@@ -14,7 +14,12 @@ public class GitHubDispatchService(HttpClient httpClient, IConfiguration configu
 
     public async Task TriggerCheckNowAsync(int requestId)
     {
+        // Falls back to a flat variable name for the same reason the DB
+        // connection string and Telegram config do - Back4app's
+        // environment-variable UI rejects the "__"/":" hierarchical naming
+        // .NET's standard config convention would otherwise need.
         var token = configuration["GitHubDispatch:Token"]
+            ?? configuration["GITHUB_DISPATCH_TOKEN"]
             ?? throw new InvalidOperationException("GitHubDispatch:Token is not configured.");
 
         var request = new HttpRequestMessage(HttpMethod.Post, $"https://api.github.com/repos/{Owner}/{Repo}/dispatches")

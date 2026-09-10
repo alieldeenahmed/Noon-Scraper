@@ -2,7 +2,7 @@
 
 An ASP.NET Core backend that tracks prices and stock on [noon.com](https://www.noon.com) (the largest e-commerce platform in the MENA region), with rule-based restock and fake-discount detection, and a live cross-merchant price comparison endpoint.
 
-**Live:** [noonscraper-0v70vtd1.b4a.run](https://noonscraper-0v70vtd1.b4a.run/api/products) (e.g. `GET /api/products`)
+**Live:** [noonscraper-v4uc8dwj.b4a.run](https://noonscraper-v4uc8dwj.b4a.run/api/products) (e.g. `GET /api/products`)
 
 ## Why this project exists
 
