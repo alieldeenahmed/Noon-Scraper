@@ -2,6 +2,8 @@
 
 A Vite + React + TypeScript UI for the [backend API](../Backend/README.md): browse tracked products, submit a new one, see price history and fake-discount/restock flags, run an on-demand cross-merchant check, and subscribe to Telegram notifications.
 
+**Live:** [noon-scraper-phi.vercel.app](https://noon-scraper-phi.vercel.app) — points at whichever Back4app URL is current (see `../Backend/docs/hosting.md`); if the site loads but no products show up, that's almost certainly why.
+
 ## Stack
 
 - **Vite** + **React 19** + **TypeScript**
@@ -35,8 +37,8 @@ src/
 ├── api/
 │   ├── types.ts      # mirrors Backend/NoonScraper.Api/Dtos field-for-field
 │   └── client.ts      # typed fetch wrapper, one function per endpoint
-├── components/         # Layout, ProductCard, AddProductForm, PriceHistoryChart,
-│                        # CheckNowPanel, NotifyMeButton, Badge
+├── components/         # Layout, ProductRow, AddProductForm, PriceHistoryLog,
+│                        # CheckNowPanel, NotifyMeButton, CrawlProgressBar
 ├── pages/
 │   ├── ProductListPage.tsx
 │   └── ProductDetailPage.tsx

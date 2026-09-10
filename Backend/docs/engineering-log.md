@@ -151,6 +151,18 @@ Along the way, a pasted error log briefly exposed the real Neon password in plai
 
 Both temporary debug additions (the exception-detail middleware and `/debug/env-keys`) were removed once the deployment was confirmed working end-to-end against the real database.
 
+## 14. A freshly-added product sat un-crawled because Back4app was running stale code
+
+After shipping the crawl-on-submit feature (`POST /products` immediately dispatches a `crawl-product` workflow run instead of waiting for the next scheduled crawl — see `crawl-on-submit.md`), the first real test through the live site showed the expected symptoms of it simply not working: the new product's name stayed the raw URL, no price, no crawl timestamp. Checking the Actions tab directly confirmed the actual cause — `crawl-product.yml` had **zero runs, ever**, not a failed run. That ruled out the dispatch call itself (`check-now`, which shares the same token and code path, was firing fine) and pointed at the dispatch never reaching GitHub at all.
+
+Back4app doesn't auto-deploy on push — every deploy on this project has needed a manual redeploy from its dashboard, which is why the recovery checklist in `hosting.md` exists. The live container was still running the build from before the commit that added the dispatch call, so `POST /products` was inserting a bare row and returning, exactly like before the feature existed, with no error anywhere to point at. Redeploying the container and re-testing (a direct `POST` against the live API) produced a real `crawl-product` run within seconds, confirming the feature itself was correct — the gap was purely a stale deployment.
+
+## 15. GitHub Actions runs were slow because they rebuilt from nothing every time
+
+`crawl-product.yml` and its siblings (`check-now.yml`, `daily-crawl.yml`) run on a brand-new GitHub-hosted VM every time, so every run re-downloaded the same NuGet packages and re-fetched the same ~150MB Chrome build from scratch — a real, user-visible chunk of the ~1.5–2 minute total runtime for what's meant to feel like a near-immediate action (submit a product, watch it fill in).
+
+**Fix:** `actions/cache` on `~/.nuget/packages` (keyed off the `.csproj` files) and `~/.cache/ms-playwright` (keyed off the pinned Playwright version), with the "Install Chrome for Playwright" step skipped entirely (`if: steps.playwright-cache.outputs.cache-hit != 'true'`) once that cache is warm. Since real step-by-step progress isn't tracked anywhere, the product page's "crawling now" state also got an elapsed-time progress bar as a companion fix — an honest estimate against a typical run rather than a literal step tracker, capped short of 100% until the crawl actually reports back.
+
 ## Summary of what's still open
 
-- Telegram notifications (bot setup, chat-id capture, subscribe/unsubscribe, and the actual notify-on-event logic) — the data model exists, nothing sends a message yet.
+Feature-complete as of the last entry above — everything originally scoped for V1 (data collection, restock/fake-discount detection, on-demand cross-merchant check, Telegram notifications, both the API and frontend deployed live) is done and verified against real, live data rather than just simulated locally. The realistic ongoing maintenance item is Back4app's free-tier reliability gap (see `hosting.md`) — the API's URL isn't stable across container recreations, which is a hosting-platform limitation rather than an application bug.

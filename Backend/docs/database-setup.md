@@ -18,7 +18,7 @@ The daily crawl runs on GitHub Actions, which can't reach a database sitting on 
 
 ## Applying the schema
 
-The four models — `Product`, `PriceSnapshot`, `NotificationSubscription`, `DiscountFlag` — live in `NoonScraper.Data`, along with `AppDbContext`. Schema changes go through EF Core migrations rather than hand-written SQL:
+The five models — `Product`, `PriceSnapshot`, `NotificationSubscription`, `DiscountFlag`, `RestockEvent` — live in `NoonScraper.Data`, along with `AppDbContext`. Schema changes go through EF Core migrations rather than hand-written SQL:
 
 ```bash
 cd NoonScraper.Api          # the project used as the migration "startup project"
