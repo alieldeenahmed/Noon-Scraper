@@ -79,6 +79,50 @@ if (args.Length > 0 && args[0] == "check-now")
     Environment.Exit(0);
 }
 
+// Invoked by the crawl-product.yml workflow right after a user submits a URL
+// via POST /products - without this, a freshly-added product would just sit
+// as a bare record (no name, price, or stock) until the next scheduled daily
+// crawl reached it, up to 24 hours later.
+if (args.Length > 0 && args[0] == "crawl-product")
+{
+    var crawlProductId = int.Parse(args[1]);
+
+    using var crawlScope = host.Services.CreateScope();
+    var crawlDb = crawlScope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var crawlHttpClient = crawlScope.ServiceProvider.GetRequiredService<IHttpClientFactory>().CreateClient();
+    var crawlTelegramToken = builder.Configuration["Telegram:BotToken"] ?? builder.Configuration["TELEGRAM_BOT_TOKEN"];
+
+    var targetProduct = await crawlDb.Products.FindAsync(crawlProductId);
+    if (targetProduct is null)
+    {
+        Console.WriteLine($"Product {crawlProductId} not found.");
+        Environment.Exit(1);
+    }
+
+    try
+    {
+        await using var crawlBrowser = await StealthBrowser.LaunchAsync();
+        var scrapedProduct = await ProductPageScraper.ScrapeAsync(crawlBrowser.Page, targetProduct!.Url);
+
+        if (scrapedProduct is null)
+        {
+            throw new InvalidOperationException("No Product data found at that URL.");
+        }
+
+        await ProductUpserter.UpsertAsync(
+            crawlDb, crawlHttpClient, crawlTelegramToken, [], scrapedProduct, ProductSource.UserAdded, category: null);
+        await crawlDb.SaveChangesAsync();
+        Console.WriteLine($"Crawled product {crawlProductId}: {scrapedProduct.Name}");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Failed to crawl product {crawlProductId}: {ex.Message}");
+        Environment.Exit(1);
+    }
+
+    Environment.Exit(0);
+}
+
 var categoryUrls = new (Category Category, string Url)[]
 {
     (Category.Mobiles, "https://www.noon.com/egypt-en/mobiles/"),
@@ -104,79 +148,6 @@ var telegramBotToken = builder.Configuration["Telegram:BotToken"] ?? builder.Con
 // in multiple widgets on one page (e.g. both "Best sellers" and "Shop all mobiles"),
 // and neither would be found by a DB lookup until SaveChangesAsync actually runs.
 var productsInThisRun = new Dictionary<string, Product>();
-
-async Task<Product> UpsertAsync(ScrapedProduct item, ProductSource source, Category? category)
-{
-    if (!productsInThisRun.TryGetValue(item.Url, out var product))
-    {
-        product = await db.Products.FirstOrDefaultAsync(p => p.Url == item.Url);
-        if (product is null)
-        {
-            product = new Product
-            {
-                Url = item.Url,
-                Source = source,
-                IsActive = true
-            };
-            db.Products.Add(product);
-        }
-
-        productsInThisRun[item.Url] = product;
-    }
-
-    product.NoonProductId = item.NoonProductId;
-    product.Name = item.Name;
-    product.Rating = item.Rating;
-    if (category is not null)
-    {
-        product.Category = category;
-    }
-    if (item.MerchantName is not null)
-    {
-        product.MerchantName = item.MerchantName;
-    }
-
-    var isRestock = await PriceHistoryAnalyzer.IsRestockAsync(db, product.Id, item.Stock);
-
-    var newSnapshot = new PriceSnapshot
-    {
-        ProductId = product.Id,
-        Product = product,
-        Price = item.Price,
-        Stock = item.Stock,
-        DiscountPercent = item.DiscountPercent
-    };
-    db.PriceSnapshots.Add(newSnapshot);
-
-    if (isRestock)
-    {
-        Console.WriteLine($"  RESTOCK: {product.Name ?? product.Url}");
-        db.RestockEvents.Add(new RestockEvent
-        {
-            ProductId = product.Id,
-            Product = product,
-            TriggeringSnapshotId = newSnapshot.Id,
-            TriggeringSnapshot = newSnapshot
-        });
-    }
-
-    var fakeDiscount = await PriceHistoryAnalyzer.DetectFakeDiscountAsync(
-        db, product, newSnapshot, item.Price, item.DiscountPercent);
-    if (fakeDiscount is not null)
-    {
-        db.DiscountFlags.Add(fakeDiscount);
-        Console.WriteLine(
-            $"  SUSPICIOUS DISCOUNT: {product.Name ?? product.Url} - claims {item.DiscountPercent}% off, " +
-            $"but {fakeDiscount.DiscountedPrice} doesn't beat the historical low");
-    }
-
-    // A brand-new product has no NotificationSubscriptions rows yet (nobody
-    // could have subscribed to an id that didn't exist before this upsert),
-    // so this is a no-op for it - only matters for products already tracked.
-    await TelegramNotifier.NotifySubscribersAsync(db, httpClient, telegramBotToken, product, isRestock, item.Price);
-
-    return product;
-}
 
 foreach (var (category, url) in categoryUrls)
 {
@@ -205,7 +176,7 @@ foreach (var (category, url) in categoryUrls)
             continue;
         }
 
-        await UpsertAsync(item, ProductSource.Seed, category);
+        await ProductUpserter.UpsertAsync(db, httpClient, telegramBotToken, productsInThisRun, item, ProductSource.Seed, category);
     }
 
     await db.SaveChangesAsync();
@@ -238,7 +209,7 @@ foreach (var product in userAddedProducts)
         continue;
     }
 
-    await UpsertAsync(scraped, ProductSource.UserAdded, category: null);
+    await ProductUpserter.UpsertAsync(db, httpClient, telegramBotToken, productsInThisRun, scraped, ProductSource.UserAdded, category: null);
     await db.SaveChangesAsync();
 }
 

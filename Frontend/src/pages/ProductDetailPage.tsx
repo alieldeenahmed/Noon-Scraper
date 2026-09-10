@@ -43,9 +43,12 @@ export default function ProductDetailPage() {
     <div className="grid gap-10 lg:grid-cols-[1fr_320px] lg:items-start">
       <div className="space-y-6">
         <div>
-          <a href={product.url} target="_blank" rel="noreferrer" className="text-xs text-ink-600 hover:text-ink-900">
-            ← view on noon.com
-          </a>
+          <div className="flex items-baseline justify-between gap-3">
+            <a href={product.url} target="_blank" rel="noreferrer" className="text-xs text-ink-600 hover:text-ink-900">
+              ← view on noon.com
+            </a>
+            <span className="text-xs text-ink-600">#{product.id}</span>
+          </div>
           <h1 className="mt-2 text-3xl leading-tight font-bold tracking-tight sm:text-4xl">
             {product.name ?? product.url}
           </h1>

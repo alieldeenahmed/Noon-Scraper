@@ -1,0 +1,614 @@
+<title>Noon Scraper Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap"
+  rel="stylesheet"
+/>
+<style>
+  :root {
+    --paper: #edeae0;
+    --paper-raised: #f5f3ec;
+    --ink: #17160f;
+    --ink-muted: #7a776b;
+    --ink-faint: #c9c5b6;
+    --red: #b23c2e;
+    --green: #3f7a4f;
+    --gold: #c99a2e;
+    --gold-ink: #4a3a10;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 56px 24px 80px;
+  }
+
+  a {
+    color: inherit;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid var(--ink);
+    padding-bottom: 18px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+  }
+
+  .wordmark {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .wordmark .dot {
+    color: var(--red);
+  }
+
+  .wordmark .light {
+    font-weight: 300;
+  }
+
+  .meta-line {
+    font-size: 11px;
+    color: var(--ink-muted);
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+  }
+
+  /* ---------- hero ---------- */
+
+  .eyebrow {
+    font-size: 11px;
+    color: var(--ink-muted);
+    text-transform: lowercase;
+    letter-spacing: 0.03em;
+    margin: 0 0 10px;
+  }
+
+  h1.title {
+    font-size: clamp(30px, 5.2vw, 42px);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.12;
+    margin: 0 0 16px;
+    text-wrap: balance;
+    max-width: 15ch;
+  }
+
+  .dek {
+    font-size: 14.5px;
+    color: var(--ink-muted);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  /* ---------- stat ledger ---------- */
+
+  .stats {
+    margin: 40px 0 48px;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    padding: 4px 0;
+  }
+
+  .stat-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 9px 0;
+    border-bottom: 1px dashed var(--ink-faint);
+  }
+
+  .stat-row:last-child {
+    border-bottom: none;
+  }
+
+  .stat-label {
+    font-size: 12.5px;
+    color: var(--ink-muted);
+    text-transform: lowercase;
+  }
+
+  .stat-value {
+    font-size: 15px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .stat-value .unit {
+    font-weight: 400;
+    color: var(--ink-muted);
+    font-size: 12px;
+    margin-left: 4px;
+  }
+
+  /* ---------- section ---------- */
+
+  section {
+    margin-bottom: 44px;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--ink);
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+
+  .section-num {
+    font-size: 11px;
+    color: var(--ink-muted);
+    letter-spacing: 0.02em;
+  }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: lowercase;
+    letter-spacing: 0.01em;
+  }
+
+  .section-note {
+    font-size: 11px;
+    color: var(--ink-muted);
+    text-transform: lowercase;
+  }
+
+  .section-intro {
+    font-size: 13px;
+    color: var(--ink-muted);
+    margin: 12px 0 4px;
+    max-width: 64ch;
+  }
+
+  /* ---------- feature rows ---------- */
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    gap: 4px 16px;
+    padding: 12px 0;
+    border-bottom: 1px dotted var(--ink-faint);
+  }
+
+  .row:last-child {
+    border-bottom: none;
+  }
+
+  .row-name {
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .row-desc {
+    grid-column: 1 / -1;
+    font-size: 12.5px;
+    color: var(--ink-muted);
+    max-width: 62ch;
+  }
+
+  .tag {
+    font-size: 10.5px;
+    text-transform: lowercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    justify-self: end;
+    padding: 2px 7px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+  }
+
+  .tag.shipped {
+    color: var(--green);
+  }
+
+  .tag.rule {
+    color: var(--gold-ink);
+    border-color: var(--gold);
+    background: rgba(201, 154, 46, 0.14);
+  }
+
+  .tag.live {
+    color: var(--red);
+  }
+
+  /* ---------- note / callout ---------- */
+
+  .note {
+    font-size: 12.5px;
+    color: var(--ink-muted);
+    border-left: 2px solid var(--ink-faint);
+    padding: 2px 0 2px 14px;
+    margin-top: 14px;
+    max-width: 60ch;
+  }
+
+  .note b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* ---------- stack pills ---------- */
+
+  .pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .pill {
+    font-size: 11.5px;
+    padding: 5px 10px;
+    border: 1px solid var(--ink-faint);
+    border-radius: 4px;
+    background: var(--paper-raised);
+    color: var(--ink);
+  }
+
+  /* ---------- links block ---------- */
+
+  .links {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 14px;
+  }
+
+  .link-card {
+    border: 1px solid var(--ink);
+    border-radius: 4px;
+    padding: 14px 16px;
+  }
+
+  .link-card .k {
+    font-size: 10.5px;
+    color: var(--ink-muted);
+    text-transform: lowercase;
+    margin-bottom: 4px;
+  }
+
+  .link-card .v {
+    font-size: 13px;
+    font-weight: 600;
+    word-break: break-all;
+  }
+
+  .link-card .v a {
+    text-decoration: none;
+    border-bottom: 1px solid var(--gold);
+  }
+
+  /* ---------- colophon ---------- */
+
+  .barcode-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-top: 1px solid var(--ink);
+    padding-top: 22px;
+    margin-top: 56px;
+  }
+
+  .colophon-text {
+    font-size: 11px;
+    color: var(--ink-muted);
+    text-transform: lowercase;
+    line-height: 1.6;
+  }
+
+  @media (max-width: 560px) {
+    .links {
+      grid-template-columns: 1fr;
+    }
+    .tag {
+      justify-self: start;
+    }
+    .row {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="wrap">
+  <div class="masthead">
+    <div class="wordmark">noon<span class="dot">&nbsp;•&nbsp;</span>scraper</div>
+    <div class="meta-line">build report · compiled 10 sept 2026</div>
+  </div>
+
+  <p class="eyebrow">noon.com/egypt-en · what actually got built</p>
+  <h1 class="title">Every feature, logged the same way the prices are.</h1>
+  <p class="dek">
+    A rule-based price-tracking system for noon.com — no AI, no ML, every decision it makes is a plain
+    threshold you could check by hand. This is the full ledger of what shipped: the crawler, the detection
+    logic, the API, the notification loop, and the interface, in the order a request actually moves through them.
+  </p>
+
+  <div class="stats">
+    <div class="stat-row">
+      <span class="stat-label">products tracked</span>
+      <span class="stat-value">211</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">price snapshots logged</span>
+      <span class="stat-value">1,071</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">fake-discount flags raised</span>
+      <span class="stat-value">18</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">categories covered</span>
+      <span class="stat-value">5<span class="unit">mobiles · laptops · skin · hair · personal care</span></span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">rule-based detectors</span>
+      <span class="stat-value">2<span class="unit">restock, fake discount — zero ML</span></span>
+    </div>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <span class="section-title">01 · data collection</span>
+      <span class="section-note">noonscraper.crawler</span>
+    </div>
+    <p class="section-intro">
+      The only part of the system that ever opens a browser. Runs headful — Chrome, not headless — because
+      the target site's Akamai Bot Manager hard-blocks headless at the network layer, not the page layer.
+    </p>
+
+    <div class="row">
+      <span class="row-name">Category crawling</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Sweeps 5 tracked categories daily, reading price/stock/discount straight off each listing tile.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">Detail-page scraping</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Parses the schema.org Product JSON-LD block on user-submitted pages — name, SKU, rating, live stock status, seller name.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">URL normalization</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Strips Noon's per-session tracking query string before dedup — fixed a real bug that was silently splitting one product into ten rows.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">Stealth scraping layer</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">navigator.webdriver, chrome.runtime, plugin/language fingerprints, and launch flags — enough to pass Akamai's static checks headful.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">Cross-merchant offer scraper</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Expands the "other sellers" panel and reads every competing offer, falling back to the single default listing when there's only one seller.</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-title">02 · detection &amp; intelligence</span>
+      <span class="section-note">noonscraper.data</span>
+    </div>
+    <p class="section-intro">
+      Rule-based on purpose — threshold logic over price history, nothing probabilistic. Every flag this
+      system raises can be explained in one sentence.
+    </p>
+
+    <div class="row">
+      <span class="row-name">Restock detection</span>
+      <span class="tag rule">rule-based</span>
+      <span class="row-desc">Fires when a product's prior snapshot was out-of-stock and the new one isn't. Persisted as a RestockEvent, not just a log line.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">Fake-discount detection</span>
+      <span class="tag rule">rule-based</span>
+      <span class="row-desc">Flags a "discount" when the price recently spiked ≥10% above its historical low and the sale price still doesn't beat that low — the % off is measured against an inflated "before" price.</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-title">03 · api</span>
+      <span class="section-note">noonscraper.api</span>
+    </div>
+    <p class="section-intro">
+      A plain ASP.NET Core Web API — no Chrome, no Docker requirement of its own. Every scrape happens
+      elsewhere; this just reads Postgres and, for check-now, hands the job off.
+    </p>
+
+    <div class="row">
+      <span class="row-name">GET /products</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">List + category filter, each row carrying its latest price, stock, and discount.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">GET /products/{id}/history</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Full snapshot history for one product, oldest to newest.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">GET /products/{id}/discount-flags · /restocks</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Every fake-discount flag and restock event on record for that product.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">POST /products</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Submit any noon.com URL to track — validated, normalized, deduped, filled in by the next crawl.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">POST /products/{id}/check-now</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Dispatches a repository_dispatch event to GitHub Actions rather than scraping in-process — the API needs no browser of its own, which is what let it run on a free host at all. Client polls GET .../check-now/{requestId} for the result.</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-title">04 · notifications</span>
+      <span class="section-note">telegram</span>
+    </div>
+    <p class="section-intro">
+      A bot can't message someone who hasn't messaged it first — so subscribing runs through a Telegram
+      deep link, not a form, and the platform itself hands over the chat ID.
+    </p>
+
+    <div class="row">
+      <span class="row-name">Subscribe via deep link</span>
+      <span class="tag live">live</span>
+      <span class="row-desc">t.me/&lt;bot&gt;?start=&lt;productId&gt; → Telegram sends /start &lt;id&gt; the moment Start is tapped → webhook creates the subscription, baselined to the current price.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">Restock &amp; price-drop alerts</span>
+      <span class="tag live">live</span>
+      <span class="row-desc">Fired from the crawler, the only place that ever learns a price actually changed — covers both the scheduled crawl and check-now.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">/stop to unsubscribe</span>
+      <span class="tag live">live</span>
+      <span class="row-desc">Removes every subscription for that chat. No per-product toggle in the UI — there's no way to know whose browser is asking without account linking.</span>
+    </div>
+
+    <div class="note">
+      <b>Verified against the real webhook</b>, not a simulation — a live /start click produced an actual
+      row in the database through the registered Telegram endpoint.
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-title">05 · interface</span>
+      <span class="section-note">vite · react · typescript</span>
+    </div>
+    <p class="section-intro">
+      Built in the same voice as this report — a monospace ledger, not a dashboard of cards. The price
+      history reads as a changelog, not a chart: what changed, and what it changed from.
+    </p>
+
+    <div class="row">
+      <span class="row-name">Item ledger</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Every tracked product as a row — price, status, last crawled — sortable by any of the three, filterable by category, searchable by name.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">Price history log</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Each crawl as one line: time, price, and ↓/↑/→ against the reading before it.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">Cross-merchant check panel</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">Triggers check-now and polls to completion in place, surfacing every seller's price the moment the scrape lands.</span>
+    </div>
+    <div class="row">
+      <span class="row-name">Responsive down to one column</span>
+      <span class="tag shipped">shipped</span>
+      <span class="row-desc">The item table collapses to stacked rows below the sm breakpoint rather than compressing four columns into a phone screen.</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-title">06 · infrastructure</span>
+      <span class="section-note">zero paid services</span>
+    </div>
+    <p class="section-intro">
+      Every piece of this runs on a free tier, reached only after ruling out platforms that turned out to
+      need a card despite documentation saying otherwise.
+    </p>
+    <div class="pills">
+      <span class="pill">Neon · Postgres</span>
+      <span class="pill">GitHub Actions · scheduled crawl</span>
+      <span class="pill">GitHub Actions · check-now dispatch</span>
+      <span class="pill">Back4app Containers · API host</span>
+      <span class="pill">Vercel · frontend host</span>
+      <span class="pill">WSL2 · Playwright dev environment</span>
+    </div>
+    <div class="note">
+      The API's host has needed rebuilding a few times — its free-tier URL isn't guaranteed stable, so the
+      link below is the current one, not necessarily a permanent one.
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="section-title">07 · live</span>
+      <span class="section-note">as of this report</span>
+    </div>
+    <div class="links">
+      <div class="link-card">
+        <div class="k">api</div>
+        <div class="v"><a href="https://noonscraper-dwfi2d0a.b4a.run/api/products" target="_blank" rel="noreferrer">noonscraper-dwfi2d0a.b4a.run</a></div>
+      </div>
+      <div class="link-card">
+        <div class="k">frontend</div>
+        <div class="v"><a href="https://noon-scraper-phi.vercel.app" target="_blank" rel="noreferrer">noon-scraper-phi.vercel.app</a></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="barcode-row">
+    <svg width="120" height="28" viewBox="0 0 120 28" role="presentation" aria-hidden="true">
+      <rect x="0" y="0" width="2" height="28" fill="#17160f"/>
+      <rect x="4" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="7" y="0" width="3" height="28" fill="#17160f"/>
+      <rect x="12" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="15" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="18" y="0" width="2" height="28" fill="#17160f"/>
+      <rect x="22" y="0" width="4" height="28" fill="#17160f"/>
+      <rect x="28" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="31" y="0" width="2" height="28" fill="#17160f"/>
+      <rect x="35" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="38" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="41" y="0" width="3" height="28" fill="#17160f"/>
+      <rect x="46" y="0" width="2" height="28" fill="#17160f"/>
+      <rect x="50" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="53" y="0" width="4" height="28" fill="#17160f"/>
+      <rect x="59" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="62" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="65" y="0" width="2" height="28" fill="#17160f"/>
+      <rect x="69" y="0" width="3" height="28" fill="#17160f"/>
+      <rect x="74" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="77" y="0" width="2" height="28" fill="#17160f"/>
+      <rect x="81" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="84" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="87" y="0" width="4" height="28" fill="#17160f"/>
+      <rect x="93" y="0" width="2" height="28" fill="#17160f"/>
+      <rect x="97" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="100" y="0" width="3" height="28" fill="#17160f"/>
+      <rect x="105" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="108" y="0" width="2" height="28" fill="#17160f"/>
+      <rect x="112" y="0" width="1" height="28" fill="#17160f"/>
+      <rect x="115" y="0" width="2" height="28" fill="#17160f"/>
+    </svg>
+    <p class="colophon-text">
+      noonscraper · rule-based, not ML · every threshold in this report is checkable by hand<br />
+      compiled as a static snapshot — figures reflect the database at the time this was written
+    </p>
+  </div>
+</div>

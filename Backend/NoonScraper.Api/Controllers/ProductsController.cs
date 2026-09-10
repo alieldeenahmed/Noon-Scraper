@@ -10,7 +10,7 @@ namespace NoonScraper.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class ProductsController(AppDbContext db, GitHubDispatchService dispatchService) : ControllerBase
+public class ProductsController(AppDbContext db, GitHubDispatchService dispatchService, ILogger<ProductsController> logger) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<List<ProductListItemDto>>> GetProducts([FromQuery] Category? category)
@@ -118,6 +118,18 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
 
         db.Products.Add(product);
         await db.SaveChangesAsync();
+
+        // Best-effort - the product is already saved either way, and the
+        // next scheduled daily crawl is a fallback if this dispatch fails,
+        // so a GitHub API hiccup here shouldn't turn into a failed 201.
+        try
+        {
+            await dispatchService.TriggerCrawlProductAsync(product.Id);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to dispatch an immediate crawl for product {ProductId}", product.Id);
+        }
 
         var dto = new ProductDetailDto
         {

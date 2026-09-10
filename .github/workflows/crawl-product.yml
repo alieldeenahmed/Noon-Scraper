@@ -1,0 +1,48 @@
+name: Crawl Product
+
+# Triggered by the API's POST /api/products, via a repository_dispatch call
+# (see NoonScraper.Api/Services/GitHubDispatchService.cs), right after a user
+# submits a new URL - without this, a freshly-added product would just sit as
+# a bare record until the next scheduled daily crawl reached it, up to 24
+# hours later. Same reasoning and same runner setup as check-now.yml, just a
+# different Crawler CLI mode.
+on:
+  repository_dispatch:
+    types: [crawl-product]
+
+jobs:
+  crawl:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    env:
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+
+    defaults:
+      run:
+        working-directory: Backend/NoonScraper.Crawler
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: Install Chrome for Playwright
+        run: dotnet run --configuration Release -- install chrome
+
+      - name: Install Playwright system dependencies
+        run: dotnet run --configuration Release -- install-deps
+
+      - name: Run crawl-product
+        run: >
+          xvfb-run --auto-servernum
+          dotnet run --configuration Release -- crawl-product ${{ github.event.client_payload.productId }}
+        env:
+          ConnectionStrings__DefaultConnection: ${{ secrets.DATABASE }}
+          Telegram__BotToken: ${{ secrets.TELEGRAM_BOT_TOKEN }}
