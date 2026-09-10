@@ -30,10 +30,32 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
+      # Restoring the same NuGet packages from scratch on every run was a big
+      # chunk of the total time - this reuses them across runs, keyed off the
+      # project files so a dependency bump still gets a fresh restore.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('Backend/**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      # The Chrome download (~150MB) was the single biggest chunk of a
+      # crawl-product run - caching it means most runs skip that download
+      # entirely. Keyed on the Playwright package version so a version bump
+      # still fetches the matching browser build.
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chrome-1.55.0
+
       - name: Build
         run: dotnet build --configuration Release
 
       - name: Install Chrome for Playwright
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: dotnet run --configuration Release -- install chrome
 
       - name: Install Playwright system dependencies

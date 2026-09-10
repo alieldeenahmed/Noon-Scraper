@@ -4,6 +4,7 @@ import { getDiscountFlags, getProduct, getProductHistory, getRestockEvents } fro
 import type { DiscountFlag, PriceSnapshot, ProductDetail, RestockEvent } from '../api/types'
 import { formatCategory, formatDate, formatPrice } from '../lib/format'
 import CheckNowPanel from '../components/CheckNowPanel'
+import CrawlProgressBar from '../components/CrawlProgressBar'
 import NotifyMeButton from '../components/NotifyMeButton'
 import PriceHistoryLog from '../components/PriceHistoryLog'
 
@@ -95,11 +96,12 @@ export default function ProductDetailPage() {
             {product.name ?? product.url}
           </h1>
           {isPending ? (
-            <p className="mt-2 text-sm text-flag-gold lowercase">
-              {pollTimedOut
-                ? 'still not back yet — refresh this page in a bit.'
-                : 'crawling this product now — usually takes a minute or two…'}
-            </p>
+            <div>
+              <p className="mt-2 text-sm text-flag-gold lowercase">
+                {pollTimedOut ? 'still not back yet — refresh this page in a bit.' : 'crawling this product now…'}
+              </p>
+              {!pollTimedOut && <CrawlProgressBar startedAt={product.addedAt} />}
+            </div>
           ) : (
             <p className="mt-2 text-sm text-ink-600 lowercase">
               {metaParts.map((part, i) => (

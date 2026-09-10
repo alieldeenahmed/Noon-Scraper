@@ -29,10 +29,25 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('Backend/**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chrome-1.55.0
+
       - name: Build
         run: dotnet build --configuration Release
 
       - name: Install Chrome for Playwright
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: dotnet run --configuration Release -- install chrome
 
       - name: Install Playwright system dependencies
