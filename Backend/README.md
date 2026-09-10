@@ -101,9 +101,9 @@ The Crawler launches a real, visible (headful) Chrome instance — this only wor
 
 ## Current status
 
-**Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping, restock detection, fake-discount detection, on-demand cross-merchant check-now (via GitHub Actions), a scheduled GitHub Actions workflow that runs the crawl automatically once a day, Telegram subscribe/unsubscribe and restock/price-drop notifications, and a deployment of the API on Back4app.
+**Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping, restock detection, fake-discount detection, on-demand cross-merchant check-now (via GitHub Actions), a scheduled GitHub Actions workflow that runs the crawl automatically once a day, a deployment of the API on Back4app, and Telegram notifications — subscribe/unsubscribe and restock/price-drop alerts, with the real webhook registered and verified against a live subscription (not just simulated locally).
 
-**Not yet done:** the Back4app deployment is currently unreachable (a hosting-platform reliability issue, not a code bug — see `docs/hosting.md`), and the Telegram bot itself hasn't been created/configured yet, so notifications are implemented but not live.
+**Not yet done:** a frontend deployment (the frontend itself is built — see `../Frontend/README.md` — but only runs locally via `npm run dev` so far), and Back4app's free tier has a real reliability gap worth knowing about before relying on the current URL staying put (see `docs/hosting.md`).
 
 **Explicitly out of scope for V1:** crawling Noon's full catalog (only tracked products, seeded + user-submitted), anything behind login/checkout, a seasonal "best time to buy" predictor (needs months of data this project doesn't have yet), and treating cross-merchant comparison as a continuous background feature rather than an on-demand action.
 

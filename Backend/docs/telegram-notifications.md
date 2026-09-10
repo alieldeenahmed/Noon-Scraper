@@ -30,10 +30,18 @@ The standard pattern (and what's implemented here): a "Notify me" link on a prod
    ```
    In `daily-crawl.yml` (the only workflow that calls `UpsertAsync`/`TelegramNotifier` — `check-now.yml` only does the cross-merchant offer comparison and never writes a `PriceSnapshot`, so it has no use for this token), GitHub Actions accepts the normal double-underscore env var name fine. Back4app doesn't, though, so `Program.cs` and `TelegramService`/`TelegramNotifier` also check a flat `TELEGRAM_BOT_TOKEN` as a fallback — same restriction as the database connection string (see `hosting.md`).
 3. **Pick a webhook secret** — any random string, used only to confirm incoming webhook calls genuinely came from Telegram (checked against the `X-Telegram-Bot-Api-Secret-Token` header). Store it the same way, under `Telegram:WebhookSecret` / `TELEGRAM_WEBHOOK_SECRET`. This one only needs to exist on the API, not the Crawler.
-4. **Register the webhook** — once the API has a real public URL (currently blocked on the Back4app hosting issue in `hosting.md`), call this once:
+4. **Register the webhook** — once the API has a real public URL, call this once:
    ```bash
    curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<your-api-host>/api/telegram/webhook&secret_token=<your-chosen-secret>"
    ```
+   Confirmed working end-to-end: a real `/start <productId>` via the deep link creates a real `NotificationSubscription` row through the live webhook, not just the local simulation used earlier in development.
+
+### Debugging the webhook itself
+
+`GET https://api.telegram.org/bot<TOKEN>/getWebhookInfo` is the fastest way to see what Telegram thinks is happening — `url`, `pending_update_count`, and `last_error_message` cover most failure modes. Two things worth knowing:
+
+- **`last_error_message` doesn't clear on success** — it's the most recent error, not the current status. A successful delivery after a run of failures still leaves the old error message sitting there. If notifications are actually arriving (or, more directly, a real subscription shows up in the database after clicking the deep link), the webhook is working regardless of what this field says.
+- **A `401 Unauthorized` here means a secret mismatch between what `setWebhook`'s `secret_token` was called with and whatever `Telegram:WebhookSecret`/`TELEGRAM_WEBHOOK_SECRET` actually holds on the running server** — in practice this came from a copy-paste mistake pasting the value into Back4app's environment-variable field. Re-generating a fresh secret and setting it in both places in the same sitting (rather than trying to compare two already-set values) is the fastest way to rule this out.
 
 ## Unsubscribing
 
