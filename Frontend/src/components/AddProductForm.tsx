@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { ApiError, createProduct } from '../api/client'
 
 export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
+  const navigate = useNavigate()
   const [url, setUrl] = useState('')
   const [status, setStatus] = useState<'idle' | 'submitting'>('idle')
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
@@ -12,10 +14,13 @@ export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
     setMessage(null)
 
     try {
-      await createProduct(url)
-      setMessage({ tone: 'success', text: 'Added — the next crawl will fill in its details.' })
+      const product = await createProduct(url)
       setUrl('')
       onAdded()
+      // Jump straight to the product's own page, which polls and fills in
+      // live as soon as the crawl-product workflow finishes - no need to
+      // wait on the list page for a bare, uncrawled row.
+      navigate(`/products/${product.id}`)
     } catch (err) {
       const text =
         err instanceof ApiError && err.status === 409
