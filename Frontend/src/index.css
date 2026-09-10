@@ -1,22 +1,20 @@
 @import 'tailwindcss';
 
 @theme {
-  --font-sans: 'Manrope', sans-serif;
+  --font-sans: 'IBM Plex Mono', monospace;
+  --font-mono: 'IBM Plex Mono', monospace;
 
-  /* Primary: sandy yellow, the page's dominant color. */
-  --color-brand-300: #fff48a;
-  --color-brand-400: #ffef4d;
-  --color-brand-500: #ffef4d;
-  --color-brand-600: #e6d634;
+  --color-paper: #edeae0;
+  --color-ink-900: #17160f;
+  --color-ink-600: #7a776b;
+  --color-ink-300: #c9c5b6;
 
-  /* Secondary/accent: ebony clay - card surfaces, and anything that needs
-     to read as "structure" against the primary. */
-  --color-ink-900: #1f3170;
-  --color-ink-800: #2a428c;
-  --color-ink-700: #3d5aa8;
+  --color-flag-red: #b23c2e;
+  --color-flag-green: #3f7a4f;
+  --color-flag-gold: #c99a2e;
 }
 
 body {
-  background-color: #ffef4d;
-  color: #1f3170;
+  background-color: #edeae0;
+  color: #17160f;
 }

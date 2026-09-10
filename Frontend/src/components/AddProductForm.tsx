@@ -30,11 +30,11 @@ export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-lg border border-brand-500/20 bg-ink-800 p-4">
-      <label htmlFor="product-url" className="block text-xs tracking-wide text-white/50 uppercase">
-        Track a new product
+    <form onSubmit={handleSubmit} className="bg-ink-900 px-6 py-5">
+      <label htmlFor="product-url" className="block text-xs text-ink-300 lowercase">
+        add an item
       </label>
-      <div className="mt-2 flex gap-2">
+      <div className="mt-2 flex items-end gap-4">
         <input
           id="product-url"
           type="url"
@@ -42,18 +42,18 @@ export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
           placeholder="https://www.noon.com/egypt-en/..."
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          className="flex-1 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-brand-400/60 focus:outline-none"
+          className="flex-1 border-b border-ink-300/40 bg-transparent py-1 text-sm text-paper placeholder:text-ink-300/50 focus:border-flag-gold focus:outline-none"
         />
         <button
           type="submit"
           disabled={status === 'submitting'}
-          className="rounded-md bg-brand-400 px-4 py-2 text-sm font-medium text-ink-900 transition hover:bg-brand-300 disabled:opacity-40"
+          className="bg-flag-gold px-5 py-2.5 text-sm font-bold text-ink-900 transition hover:brightness-110 disabled:opacity-40"
         >
-          {status === 'submitting' ? 'Adding…' : 'Add'}
+          {status === 'submitting' ? 'adding…' : 'track it'}
         </button>
       </div>
       {message && (
-        <p className={`mt-2 text-sm ${message.tone === 'error' ? 'text-red-400' : 'text-brand-300'}`}>
+        <p className={`mt-2 text-sm ${message.tone === 'error' ? 'text-flag-red' : 'text-flag-green'}`}>
           {message.text}
         </p>
       )}

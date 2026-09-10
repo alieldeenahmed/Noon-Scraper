@@ -22,10 +22,29 @@ export function formatPrice(price: number | null): string {
   return price === null ? '—' : currencyFormatter.format(price)
 }
 
+const exactCurrencyFormatter = new Intl.NumberFormat('en-EG', {
+  style: 'currency',
+  currency: 'EGP',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+export function formatPriceExact(price: number): string {
+  return exactCurrencyFormatter.format(price)
+}
+
 export function formatDate(iso: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-GB', {
     dateStyle: 'medium',
     timeStyle: 'short',
   })
+}
+
+export function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+}
+
+export function formatShortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }

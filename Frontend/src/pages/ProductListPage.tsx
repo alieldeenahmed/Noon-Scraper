@@ -3,7 +3,7 @@ import { getProducts } from '../api/client'
 import type { Category, ProductListItem } from '../api/types'
 import { formatCategory } from '../lib/format'
 import AddProductForm from '../components/AddProductForm'
-import ProductCard from '../components/ProductCard'
+import ProductRow, { ROW_GRID } from '../components/ProductRow'
 
 const categories: Category[] = ['Mobiles', 'Laptops', 'SkinCare', 'HairCare', 'PersonalCare']
 
@@ -27,57 +27,83 @@ export default function ProductListPage() {
   const onDiscount = products?.filter((p) => p.latestDiscountPercent != null).length ?? 0
 
   return (
-    <div className="space-y-14">
-      <section className="grid gap-10 lg:grid-cols-[1.3fr_1fr] lg:items-end">
+    <div className="space-y-10">
+      <section className="grid gap-10 border-b border-ink-300 pb-10 lg:grid-cols-[1.4fr_1fr]">
         <div>
-          <p className="text-xs tracking-wide text-ink-900/60 uppercase">Noon Scraper</p>
-          <h1 className="mt-3 max-w-xl text-5xl leading-[1.05] font-medium tracking-tight text-ink-900">
-            Track prices. Catch fake discounts. Never miss a restock.
+          <p className="text-xs text-ink-600 lowercase">noon.com/egypt-en · itemized watch list</p>
+          <h1 className="mt-3 max-w-lg text-4xl leading-[1.15] font-bold tracking-tight sm:text-5xl">
+            Every price change, logged the moment it happens.
           </h1>
+          <p className="mt-4 max-w-md text-sm text-ink-600">
+            Paste a product link. We check it against its own history and flag discounts that don’t add up.
+          </p>
         </div>
-        <div className="flex gap-8 lg:justify-end">
-          <Stat label="Tracked" value={products?.length ?? '—'} />
-          <Stat label="In stock" value={products ? inStock : '—'} />
-          <Stat label="On discount" value={products ? onDiscount : '—'} />
-        </div>
+        <dl className="space-y-3 self-center">
+          <StatRow label="items tracked" value={products?.length ?? '—'} />
+          <StatRow label="in stock" value={products ? inStock : '—'} className="text-flag-green" />
+          <StatRow label="on discount" value={products ? onDiscount : '—'} className="text-flag-red" />
+        </dl>
       </section>
 
       <AddProductForm onAdded={load} />
 
-      <section className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <FilterPill active={category === ''} onClick={() => setCategory('')}>
-            All
-          </FilterPill>
-          {categories.map((c) => (
-            <FilterPill key={c} active={category === c} onClick={() => setCategory(c)}>
-              {formatCategory(c)}
-            </FilterPill>
-          ))}
+      <section>
+        <div className="flex flex-wrap items-baseline justify-between gap-4 border-b border-ink-900 pb-3">
+          <div className="flex flex-wrap items-baseline gap-5 text-sm">
+            <FilterLink active={category === ''} onClick={() => setCategory('')}>
+              All
+            </FilterLink>
+            {categories.map((c) => (
+              <FilterLink key={c} active={category === c} onClick={() => setCategory(c)}>
+                {formatCategory(c)}
+              </FilterLink>
+            ))}
+          </div>
+          <p className="text-xs text-ink-600 lowercase">
+            {products ? `${products.length} items` : '—'} · sorted by last crawled
+          </p>
         </div>
 
-        {error && <p className="text-sm font-medium text-red-700">Couldn’t reach the API. Is it running?</p>}
-        {!error && products === null && <p className="text-sm text-ink-900/50">Loading…</p>}
-        {products?.length === 0 && <p className="text-sm text-ink-900/50">No products tracked yet.</p>}
+        {error && <p className="mt-4 text-sm font-bold text-flag-red">Couldn’t reach the API. Is it running?</p>}
+        {!error && products === null && <p className="mt-4 text-sm text-ink-600">loading…</p>}
+        {products?.length === 0 && <p className="mt-4 text-sm text-ink-600">No products tracked yet.</p>}
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {products?.map((product) => <ProductCard key={product.id} product={product} />)}
-        </div>
+        {products && products.length > 0 && (
+          <div>
+            <div className={`${ROW_GRID} border-b border-ink-900 pb-2 text-xs text-ink-600 lowercase`}>
+              <span>item</span>
+              <span className="text-right">price</span>
+              <span className="text-right">status</span>
+              <span className="text-right">last crawled</span>
+            </div>
+            {products.map((product) => (
+              <ProductRow key={product.id} product={product} />
+            ))}
+          </div>
+        )}
       </section>
     </div>
   )
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
+function StatRow({
+  label,
+  value,
+  className = '',
+}: {
+  label: string
+  value: number | string
+  className?: string
+}) {
   return (
-    <div>
-      <p className="text-3xl font-medium tracking-tight text-ink-900">{value}</p>
-      <p className="text-xs tracking-wide text-ink-900/60 uppercase">{label}</p>
+    <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-ink-300 pb-2">
+      <span className="text-sm text-ink-600 lowercase">{label}</span>
+      <span className={`text-xl font-bold ${className}`}>{value}</span>
     </div>
   )
 }
 
-function FilterPill({
+function FilterLink({
   active,
   onClick,
   children,
@@ -89,11 +115,7 @@ function FilterPill({
   return (
     <button
       onClick={onClick}
-      className={`rounded-full border px-3.5 py-1.5 text-sm transition ${
-        active
-          ? 'border-ink-900 bg-ink-900 text-brand-400'
-          : 'border-ink-900/20 bg-transparent text-ink-900/70 hover:border-ink-900/40'
-      }`}
+      className={active ? 'border-b-2 border-ink-900 pb-0.5 font-bold' : 'text-ink-600 hover:text-ink-900'}
     >
       {children}
     </button>

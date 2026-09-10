@@ -38,60 +38,55 @@ export default function CheckNowPanel({ productId }: { productId: number }) {
         } catch {
           stopPolling()
           setRunning(false)
-          setError('Lost connection while checking on this request.')
+          setError('lost connection while checking on this request')
         }
       }, POLL_INTERVAL_MS)
     } catch {
       setRunning(false)
-      setError('Couldn’t start the check — the API might be unreachable or misconfigured.')
+      setError('couldn’t start the check')
     }
   }
 
   return (
-    <div className="rounded-lg border border-brand-500/20 bg-ink-800 p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="font-light text-white">Cross-merchant check</h2>
+    <div className="border border-ink-900 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs text-ink-600 lowercase">cross-merchant check</p>
+          <p className="font-bold">compare vs. other sellers</p>
+        </div>
         <button
           onClick={handleCheckNow}
           disabled={running}
-          className="rounded-md bg-brand-400 px-3 py-1.5 text-sm font-medium text-ink-900 transition hover:bg-brand-300 disabled:opacity-40"
+          className="shrink-0 border border-ink-900 px-3 py-1.5 text-xs lowercase transition hover:bg-ink-900 hover:text-paper disabled:opacity-40"
         >
-          {running ? 'Checking…' : 'Check now'}
+          {running ? 'checking…' : 'check'}
         </button>
       </div>
 
-      {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-3 text-sm text-flag-red">{error}</p>}
 
       {running && !result && !error && (
-        <p className="mt-3 text-sm text-white/40">
-          Kicking off a live scrape via GitHub Actions — this can take a couple minutes.
-        </p>
+        <p className="mt-3 text-sm text-ink-600">kicking off a live scrape — this can take a couple minutes.</p>
       )}
 
-      {result?.status === 'Pending' && <p className="mt-3 text-sm text-white/40">Still running…</p>}
+      {result?.status === 'Pending' && <p className="mt-3 text-sm text-ink-600">still running…</p>}
 
-      {result?.status === 'Failed' && (
-        <p className="mt-3 text-sm text-red-400">Check failed: {result.errorMessage}</p>
-      )}
+      {result?.status === 'Failed' && <p className="mt-3 text-sm text-flag-red">check failed: {result.errorMessage}</p>}
 
       {result?.status === 'Completed' && (
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 divide-y divide-dotted divide-ink-300 border-t border-dotted border-ink-300">
           {result.offers?.length === 0 ? (
-            <p className="text-sm text-white/40">No other sellers found for this product.</p>
+            <p className="py-2 text-sm text-ink-600">no other sellers found.</p>
           ) : (
-            <table className="w-full text-sm">
-              <tbody>
-                {result.offers?.map((offer, i) => (
-                  <tr key={i} className="border-t border-white/10 first:border-0">
-                    <td className="py-1.5 text-white/80">
-                      {offer.merchantName}
-                      {offer.rating != null && <span className="ml-1 text-white/30">★ {offer.rating}</span>}
-                    </td>
-                    <td className="py-1.5 text-right text-white">{formatPrice(offer.price)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            result.offers?.map((offer, i) => (
+              <div key={i} className="flex items-baseline justify-between py-2 text-sm">
+                <span>
+                  {offer.merchantName}
+                  {offer.rating != null && <span className="ml-1 text-ink-600">★ {offer.rating}</span>}
+                </span>
+                <span className="font-bold">{formatPrice(offer.price)}</span>
+              </div>
+            ))
           )}
         </div>
       )}
