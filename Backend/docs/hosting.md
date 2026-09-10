@@ -27,7 +27,17 @@ All four are read under these flat names specifically because Back4app's environ
 - **No visible runtime log viewer** on the free tier at the time I set this up — only build/deploy logs. Diagnosing a bare `500` with an empty response body required temporarily adding an exception-detail middleware directly to the API (writing `ex.ToString()` into the response) rather than relying on any dashboard log view. That middleware was removed once the deployment was confirmed working — leaving it in would leak stack traces and config to anyone hitting a broken endpoint.
 - **Auto-deploy on push isn't instant, and occasionally seems to miss a push entirely** — Back4app is connected via a GitHub App (not a classic webhook, so it doesn't show under the repo's Settings → Webhooks), and one push during setup produced no new deployment at all until a later, unrelated push finally triggered one. If a push doesn't seem to be landing, a trivial follow-up commit is a reasonable way to re-trigger it — there's no manual "redeploy" button on the free tier to fall back on.
 - **The container can go silently unreachable between deploys, and it doesn't wake back up on its own.** More than once, a deployment that worked right after going live later started returning a bare CloudFront-level 404 (no `server: Kestrel` header at all, meaning the request never reached the app) with the dashboard still showing "Deployed" the whole time. Hitting it repeatedly over ~90 seconds never woke it — this isn't a per-request cold start, whatever it is.
-- **The only recovery available on the free tier is deleting and recreating the container app — which assigns a brand-new random subdomain.** `noonscraper-0v70vtd1.b4a.run` became `noonscraper-v4uc8dwj.b4a.run` this way. There's no way (found so far) to keep the same URL through a recreation, which means the "permanent" link in this README has needed updating more than once, and every environment variable has to be checked and likely re-entered afterward too. Worth knowing before pointing anything external (a frontend's `.env`, a Telegram webhook registration, a resume link) at the current URL — it may not be the URL a month from now.
+- **The only recovery available on the free tier is deleting and recreating the container app — which assigns a brand-new random subdomain.** This has happened three times now: `0v70vtd1` → `v4uc8dwj` → `dwfi2d0a`. There's no way (found so far) to keep the same URL through a recreation. Worth knowing before pointing anything external (a frontend's `.env`, a Telegram webhook registration, a resume link) at the current URL — it may not be the URL a month from now, or even a day from now.
+
+## Recovery checklist, every time the URL changes
+
+Everything below has an independent, easy-to-forget reference to the current backend URL:
+
+1. Re-check/re-enter all four environment variables (see above) on the new container.
+2. Update the **`Live:`** link at the top of this README.
+3. Update `VITE_API_BASE_URL` in the deployed frontend's env vars (Vercel project settings) and trigger a redeploy — this is baked in at build time, not read at runtime, so editing the env var alone does nothing until the next build.
+4. Re-register the Telegram webhook (`setWebhook`, see `telegram-notifications.md`) — it's pointing at whatever URL was current when it was last registered, and silently stops delivering (not erroring loudly) once that URL dies.
+5. Add the new URL to CORS on the API side is **not** needed — CORS is about the frontend's origin, which doesn't change here.
 
 ## What's deliberately not here
 
