@@ -28,9 +28,21 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy(FrontendCorsPolicy, policy =>
     {
-        policy.WithOrigins("http://localhost:5173", "https://noon-scraper-phi.vercel.app")
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+        policy.AllowAnyHeader().AllowAnyMethod();
+
+        if (builder.Environment.IsDevelopment())
+        {
+            // Vite bumps to the next free port whenever something else on the
+            // machine already holds 5173 (e.g. another local project already
+            // running) - trust any localhost origin in dev rather than
+            // hardcoding one port and breaking every time that happens.
+            policy.SetIsOriginAllowed(origin =>
+                Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.IsLoopback);
+        }
+        else
+        {
+            policy.WithOrigins("https://noon-scraper-phi.vercel.app");
+        }
     });
 });
 
