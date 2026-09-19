@@ -1,61 +1,85 @@
-import { useEffect, useMemo, useState } from 'react'
-import { getProducts } from '../api/client'
-import type { Category, ProductListItem } from '../api/types'
+import { useEffect, useState } from 'react'
+import { getProducts, getProductStats } from '../api/client'
+import type { Category, PagedResult, ProductListItem, ProductSortKey, ProductStats, SortDirection } from '../api/types'
 import { formatCategory } from '../lib/format'
 import AddProductForm from '../components/AddProductForm'
 import ProductRow, { ROW_GRID } from '../components/ProductRow'
 
 const categories: Category[] = ['Mobiles', 'Laptops', 'SkinCare', 'HairCare', 'PersonalCare']
 
-type SortKey = 'crawled' | 'price' | 'discount'
-type SortDir = 'asc' | 'desc'
+const PAGE_SIZE = 25
+const SEARCH_DEBOUNCE_MS = 300
 
 export default function ProductListPage() {
-  const [products, setProducts] = useState<ProductListItem[] | null>(null)
+  const [result, setResult] = useState<PagedResult<ProductListItem> | null>(null)
+  const [stats, setStats] = useState<ProductStats | null>(null)
   const [category, setCategory] = useState<Category | ''>('')
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('crawled')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [sortKey, setSortKey] = useState<ProductSortKey>('crawled')
+  const [sortDir, setSortDir] = useState<SortDirection>('desc')
+  const [page, setPage] = useState(1)
+  const [reloadCount, setReloadCount] = useState(0)
   const [error, setError] = useState(false)
 
-  const load = () => {
-    getProducts(category || undefined)
+  // Search runs in the database now, so wait for a pause in typing instead
+  // of firing a request per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim())
+      setPage(1)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // The previous page stays on screen while the next one loads; `cancelled`
+  // drops a slow response that a newer query has already superseded.
+  useEffect(() => {
+    let cancelled = false
+    getProducts({ category: category || undefined, search, sortBy: sortKey, sortDir, page, pageSize: PAGE_SIZE })
       .then((data) => {
-        setProducts(data)
+        if (cancelled) return
+        setResult(data)
         setError(false)
       })
-      .catch(() => setError(true))
+      .catch(() => {
+        if (!cancelled) setError(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [category, search, sortKey, sortDir, page, reloadCount])
+
+  useEffect(() => {
+    let cancelled = false
+    getProductStats(category || undefined)
+      .then((data) => {
+        if (!cancelled) setStats(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [category, reloadCount])
+
+  function selectCategory(next: Category | '') {
+    setCategory(next)
+    setPage(1)
   }
 
-  useEffect(load, [category])
-
-  function toggleSort(key: SortKey) {
+  function toggleSort(key: ProductSortKey) {
     if (key === sortKey) {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
       setSortKey(key)
       setSortDir('desc')
     }
+    setPage(1)
   }
 
-  const visible = useMemo(() => {
-    if (!products) return null
-
-    const q = search.trim().toLowerCase()
-    const filtered = q ? products.filter((p) => (p.name ?? p.url).toLowerCase().includes(q)) : products
-
-    const sortValue = (p: ProductListItem): number => {
-      if (sortKey === 'price') return p.latestPrice ?? -Infinity
-      if (sortKey === 'discount') return p.latestDiscountPercent ?? -Infinity
-      return p.lastCrawledAt ? new Date(p.lastCrawledAt).getTime() : -Infinity
-    }
-
-    const sign = sortDir === 'asc' ? 1 : -1
-    return [...filtered].sort((a, b) => (sortValue(a) - sortValue(b)) * sign)
-  }, [products, search, sortKey, sortDir])
-
-  const inStock = products?.filter((p) => p.latestStock !== false).length ?? 0
-  const onDiscount = products?.filter((p) => p.latestDiscountPercent != null).length ?? 0
+  const visible = result?.items ?? null
+  const firstShown = result && result.items.length > 0 ? (result.page - 1) * result.pageSize + 1 : 0
+  const lastShown = result && result.items.length > 0 ? firstShown + result.items.length - 1 : 0
 
   return (
     <div className="space-y-10">
@@ -70,31 +94,31 @@ export default function ProductListPage() {
           </p>
         </div>
         <dl className="space-y-3 self-center">
-          <StatRow label="items tracked" value={products?.length ?? '—'} />
-          <StatRow label="in stock" value={products ? inStock : '—'} className="text-flag-green" />
-          <StatRow label="on discount" value={products ? onDiscount : '—'} className="text-flag-red" />
+          <StatRow label="items tracked" value={stats?.total ?? '—'} />
+          <StatRow label="in stock" value={stats?.inStock ?? '—'} className="text-flag-green" />
+          <StatRow label="on discount" value={stats?.onDiscount ?? '—'} className="text-flag-red" />
         </dl>
       </section>
 
-      <AddProductForm onAdded={load} />
+      <AddProductForm onAdded={() => setReloadCount((n) => n + 1)} />
 
       <section>
         <div className="space-y-4 border-b border-ink-900 pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
             <div className="flex flex-wrap items-baseline gap-5 text-sm">
-              <FilterLink active={category === ''} onClick={() => setCategory('')}>
+              <FilterLink active={category === ''} onClick={() => selectCategory('')}>
                 All
               </FilterLink>
               {categories.map((c) => (
-                <FilterLink key={c} active={category === c} onClick={() => setCategory(c)}>
+                <FilterLink key={c} active={category === c} onClick={() => selectCategory(c)}>
                   {formatCategory(c)}
                 </FilterLink>
               ))}
             </div>
             <input
               type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder="search items…"
               className="w-full border-b border-ink-300 bg-transparent py-1 text-sm text-ink-900 placeholder:text-ink-600 focus:border-ink-900 focus:outline-none sm:w-48"
             />
@@ -107,12 +131,12 @@ export default function ProductListPage() {
               <SortLink label="price" sortKey="price" active={sortKey} dir={sortDir} onClick={toggleSort} />
               <SortLink label="discount" sortKey="discount" active={sortKey} dir={sortDir} onClick={toggleSort} />
             </span>
-            <span>{visible ? `${visible.length} items` : '—'}</span>
+            <span>{result ? `${result.total} items` : '—'}</span>
           </div>
         </div>
 
         {error && <p className="mt-4 text-sm font-bold text-flag-red">Couldn’t reach the API. Is it running?</p>}
-        {!error && products === null && <p className="mt-4 text-sm text-ink-600">loading…</p>}
+        {!error && result === null && <p className="mt-4 text-sm text-ink-600">loading…</p>}
         {visible?.length === 0 && <p className="mt-4 text-sm text-ink-600">No products match.</p>}
 
         {visible && visible.length > 0 && (
@@ -127,6 +151,28 @@ export default function ProductListPage() {
               <ProductRow key={product.id} product={product} />
             ))}
           </div>
+        )}
+
+        {result && result.totalPages > 1 && (
+          <nav className="mt-6 flex items-baseline justify-between gap-4 border-t border-ink-900 pt-3 text-xs lowercase">
+            <button
+              onClick={() => setPage((p) => p - 1)}
+              disabled={result.page <= 1}
+              className="hover:text-ink-900 disabled:cursor-default disabled:opacity-30"
+            >
+              ← prev
+            </button>
+            <span className="text-ink-600">
+              {firstShown}–{lastShown} of {result.total} · page {result.page} of {result.totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={result.page >= result.totalPages}
+              className="hover:text-ink-900 disabled:cursor-default disabled:opacity-30"
+            >
+              next →
+            </button>
+          </nav>
         )}
       </section>
     </div>
@@ -177,10 +223,10 @@ function SortLink({
   onClick,
 }: {
   label: string
-  sortKey: SortKey
-  active: SortKey
-  dir: SortDir
-  onClick: (key: SortKey) => void
+  sortKey: ProductSortKey
+  active: ProductSortKey
+  dir: SortDirection
+  onClick: (key: ProductSortKey) => void
 }) {
   const isActive = active === sortKey
   return (

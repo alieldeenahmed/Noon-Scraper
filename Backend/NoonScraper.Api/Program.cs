@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using NoonScraper.Api.Services;
 using NoonScraper.Data;
@@ -46,6 +47,22 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddApiRateLimiting();
+
+// Behind the hosting platform's proxies the socket peer is a proxy, not the
+// client - without this every visitor would share one rate-limit bucket.
+// The proxy chain's depth isn't known here, so the whole X-Forwarded-For
+// chain is honored (ForwardLimit = null) and the client's address is taken
+// from the front of it. That header is client-forgeable, which is why the
+// dispatch endpoints also carry a combined cap that ignores IPs entirely.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    options.ForwardLimit = null;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -54,12 +71,21 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseForwardedHeaders();
+
 app.UseHttpsRedirection();
 
 app.UseCors(FrontendCorsPolicy);
+
+// After CORS, so a 429 still carries the CORS headers the browser needs to
+// let the frontend read it.
+app.UseRateLimiter();
 
 app.UseAuthorization();
 
 app.MapControllers();
 
 app.Run();
+
+// Exposes the entry point to the integration tests' WebApplicationFactory.
+public partial class Program;

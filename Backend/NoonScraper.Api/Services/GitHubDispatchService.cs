@@ -13,14 +13,16 @@ public class GitHubDispatchService(HttpClient httpClient, IConfiguration configu
     private const string Repo = "Noon-Scraper";
 
     // Triggers check-now.yml, which runs the cross-merchant offer comparison.
-    public Task TriggerCheckNowAsync(int requestId) =>
+    // The two Trigger* methods are virtual so integration tests can swap in a
+    // fake instead of calling GitHub.
+    public virtual Task TriggerCheckNowAsync(int requestId) =>
         DispatchAsync("check-now", new { requestId });
 
     // Triggers crawl-product.yml, which fills in a freshly-submitted
     // product's own data (name, price, stock, category) - without this it
     // would just sit as a bare record until the next scheduled daily crawl,
     // up to 24 hours later.
-    public Task TriggerCrawlProductAsync(int productId) =>
+    public virtual Task TriggerCrawlProductAsync(int productId) =>
         DispatchAsync("crawl-product", new { productId });
 
     private async Task DispatchAsync(string eventType, object payload)

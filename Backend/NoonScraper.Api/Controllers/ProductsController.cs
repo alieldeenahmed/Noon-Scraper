@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using NoonScraper.Api.Dtos;
 using NoonScraper.Api.Services;
@@ -12,24 +13,73 @@ namespace NoonScraper.Api.Controllers;
 [Route("api/[controller]")]
 public class ProductsController(AppDbContext db, GitHubDispatchService dispatchService, ILogger<ProductsController> logger) : ControllerBase
 {
+    private const int MaxPageSize = 100;
+
+    // Search, sort, and paging all happen in the database rather than over one
+    // big client-side list - the response is one page of the matching rows plus
+    // the total, so the payload stays bounded as the tracked set grows.
     [HttpGet]
-    public async Task<ActionResult<List<ProductListItemDto>>> GetProducts([FromQuery] Category? category)
+    public async Task<ActionResult<PagedResultDto<ProductListItemDto>>> GetProducts(
+        [FromQuery] Category? category,
+        [FromQuery] string? search,
+        [FromQuery] string sortBy = "crawled",
+        [FromQuery] string sortDir = "desc",
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25)
     {
-        var query = db.Products.AsQueryable();
-        if (category is not null)
+        var descending = sortDir.ToLowerInvariant() switch
         {
-            query = query.Where(p => p.Category == category);
+            "desc" => true,
+            "asc" => false,
+            _ => (bool?)null
+        };
+        if (descending is null)
+        {
+            return BadRequest("sortDir must be 'asc' or 'desc'.");
         }
 
-        var products = await query
-            .OrderByDescending(p => p.AddedAt)
-            .Select(p => new
-            {
-                Product = p,
-                Latest = p.PriceSnapshots
-                    .OrderByDescending(s => s.CrawledAt)
-                    .FirstOrDefault()
-            })
+        if (sortBy.ToLowerInvariant() is not ("crawled" or "price" or "discount"))
+        {
+            return BadRequest("sortBy must be 'crawled', 'price', or 'discount'.");
+        }
+
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, MaxPageSize);
+
+        var rows = ProductsWithLatestSnapshot();
+
+        if (category is not null)
+        {
+            rows = rows.Where(x => x.Product.Category == category);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLowerInvariant();
+            rows = rows.Where(x => (x.Product.Name ?? x.Product.Url).ToLower().Contains(term));
+        }
+
+        var total = await rows.CountAsync();
+
+        // Products with no value for the sorted field (never crawled, no
+        // discount) always sort last, in either direction, rather than
+        // wherever Postgres's NULL ordering would happen to put them.
+        var ordered = (sortBy.ToLowerInvariant(), descending.Value) switch
+        {
+            ("price", true) => rows.OrderBy(x => x.Latest == null).ThenByDescending(x => x.Latest!.Price),
+            ("price", false) => rows.OrderBy(x => x.Latest == null).ThenBy(x => x.Latest!.Price),
+            ("discount", true) => rows.OrderBy(x => x.Latest == null || x.Latest.DiscountPercent == null)
+                .ThenByDescending(x => x.Latest!.DiscountPercent),
+            ("discount", false) => rows.OrderBy(x => x.Latest == null || x.Latest.DiscountPercent == null)
+                .ThenBy(x => x.Latest!.DiscountPercent),
+            (_, true) => rows.OrderBy(x => x.Latest == null).ThenByDescending(x => x.Latest!.CrawledAt),
+            _ => rows.OrderBy(x => x.Latest == null).ThenBy(x => x.Latest!.CrawledAt)
+        };
+
+        var items = await ordered
+            .ThenByDescending(x => x.Product.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(x => new ProductListItemDto
             {
                 Id = x.Product.Id,
@@ -46,7 +96,49 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
             })
             .ToListAsync();
 
-        return Ok(products);
+        return Ok(new PagedResultDto<ProductListItemDto>
+        {
+            Items = items,
+            Total = total,
+            Page = page,
+            PageSize = pageSize
+        });
+    }
+
+    // Headline counts for the list page. Needs its own endpoint now that the
+    // list itself is paged - the client no longer holds every product to count.
+    [HttpGet("stats")]
+    public async Task<ActionResult<ProductStatsDto>> GetStats([FromQuery] Category? category)
+    {
+        var rows = ProductsWithLatestSnapshot();
+
+        if (category is not null)
+        {
+            rows = rows.Where(x => x.Product.Category == category);
+        }
+
+        return Ok(new ProductStatsDto
+        {
+            Total = await rows.CountAsync(),
+            InStock = await rows.CountAsync(x => x.Latest == null || x.Latest.Stock),
+            OnDiscount = await rows.CountAsync(x => x.Latest != null && x.Latest.DiscountPercent != null)
+        });
+    }
+
+    private IQueryable<ProductWithLatest> ProductsWithLatestSnapshot() =>
+        db.Products.Select(p => new ProductWithLatest
+        {
+            Product = p,
+            Latest = p.PriceSnapshots
+                .OrderByDescending(s => s.CrawledAt)
+                .FirstOrDefault()
+        });
+
+    private sealed class ProductWithLatest
+    {
+        public required Product Product { get; init; }
+
+        public PriceSnapshot? Latest { get; init; }
     }
 
     [HttpGet("{id:int}")]
@@ -88,11 +180,17 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
         return Ok(product);
     }
 
+    // Rate-limited more tightly than the read endpoints: every accepted
+    // request here fires a GitHub Actions dispatch, which is metered.
     [HttpPost]
+    [EnableRateLimiting(RateLimitPolicies.Dispatch)]
     public async Task<ActionResult<ProductDetailDto>> CreateProduct(CreateProductRequestDto request)
     {
+        // "noon.com" itself or a real subdomain - a bare EndsWith("noon.com")
+        // would also accept lookalike hosts such as "evilnoon.com".
         if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||
-            !uri.Host.EndsWith("noon.com", StringComparison.OrdinalIgnoreCase))
+            !(uri.Host.Equals("noon.com", StringComparison.OrdinalIgnoreCase) ||
+              uri.Host.EndsWith(".noon.com", StringComparison.OrdinalIgnoreCase)))
         {
             return BadRequest("Url must be an absolute noon.com product URL.");
         }
@@ -223,6 +321,7 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
     // actual scrape off to the same Chrome-capable environment the daily crawl
     // runs in, then the caller polls for the result.
     [HttpPost("{id:int}/check-now")]
+    [EnableRateLimiting(RateLimitPolicies.Dispatch)]
     public async Task<ActionResult<CheckNowAcceptedDto>> CheckNow(int id)
     {
         var productExists = await db.Products.AnyAsync(p => p.Id == id);

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { getCheckNowResult, startCheckNow } from '../api/client'
+import { ApiError, getCheckNowResult, startCheckNow } from '../api/client'
 import type { CheckNowResult } from '../api/types'
 import { formatPrice } from '../lib/format'
 
@@ -41,9 +41,13 @@ export default function CheckNowPanel({ productId }: { productId: number }) {
           setError('lost connection while checking on this request')
         }
       }, POLL_INTERVAL_MS)
-    } catch {
+    } catch (err) {
       setRunning(false)
-      setError('couldn’t start the check')
+      setError(
+        err instanceof ApiError && err.status === 429
+          ? 'too many checks — wait a minute and try again'
+          : 'couldn’t start the check',
+      )
     }
   }
 

@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 const ESTIMATED_MS = 75_000
 
 export default function CrawlProgressBar({ startedAt }: { startedAt: string }) {
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 500)

@@ -74,6 +74,9 @@ Telegram notifications need two more secrets, set the same way (`Telegram:BotTok
 # Build everything
 dotnet build
 
+# Run the tests (unit + API integration; no database or secrets needed)
+dotnet test
+
 # Run the API
 cd NoonScraper.Api
 dotnet run
@@ -89,19 +92,22 @@ The Crawler launches a real, visible (headful) Chrome instance — this only wor
 
 | Method | Route | Purpose |
 |---|---|---|
-| `GET` | `/api/products` | List tracked products, optional `?category=` filter, includes each product's latest price/stock/discount |
+| `GET` | `/api/products` | One page of tracked products with each one's latest price/stock/discount. Query: `category`, `search` (name, or URL if not yet crawled), `sortBy` (`crawled`/`price`/`discount`), `sortDir` (`asc`/`desc`), `page`, `pageSize` (default 25, max 100). Returns `{ items, total, page, pageSize, totalPages }`; unknown sort values are a `400`, out-of-range paging is clamped |
+| `GET` | `/api/products/stats` | `{ total, inStock, onDiscount }`, optionally scoped with `?category=` |
 | `GET` | `/api/products/{id}` | Full detail for one product |
 | `GET` | `/api/products/{id}/history` | Full price/stock history for one product |
 | `GET` | `/api/products/{id}/discount-flags` | Every fake-discount flag raised for this product (prior high price, discounted price, when each was detected), most recent first |
 | `GET` | `/api/products/{id}/restocks` | Every time this product went from out-of-stock to in-stock, most recent first |
-| `POST` | `/api/products` | Submit a URL to track (`{ "url": "..." }`) — validates it's a noon.com link, normalizes it, rejects duplicates, inserts a bare record and immediately dispatches a one-off crawl for it (see `docs/crawl-on-submit.md`) rather than waiting for the next scheduled daily crawl |
-| `POST` | `/api/products/{id}/check-now` | Kicks off a live, on-demand cross-merchant price check via GitHub Actions (see "Where scraping actually happens" above) — returns `202 Accepted` with a `requestId` immediately, doesn't scrape inline |
+| `POST` | `/api/products` | Submit a URL to track (`{ "url": "..." }`) — validates it's a noon.com link, normalizes it, rejects duplicates, inserts a bare record and immediately dispatches a one-off crawl for it (see `docs/crawl-on-submit.md`) rather than waiting for the next scheduled daily crawl. Rate-limited |
+| `POST` | `/api/products/{id}/check-now` | Kicks off a live, on-demand cross-merchant price check via GitHub Actions (see "Where scraping actually happens" above) — returns `202 Accepted` with a `requestId` immediately, doesn't scrape inline. Rate-limited |
 | `GET` | `/api/products/{id}/check-now/{requestId}` | Poll for that check's result — `Status` is `Pending`, `Completed`, or `Failed`; once `Completed`, `Offers` holds every seller's price sorted lowest first |
 | `POST` | `/api/telegram/webhook` | Receives Telegram's webhook updates — not called directly by a frontend. Handles `/start <productId>` (subscribe) and `/stop` (unsubscribe from everything) sent to the bot. See `docs/telegram-notifications.md` |
 
 ## Current status
 
 This project is feature-complete. **Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping and an immediate one-off crawl on submit (rather than waiting for the next scheduled run — see `docs/crawl-on-submit.md`), restock detection, fake-discount detection, on-demand cross-merchant check-now (via GitHub Actions), a scheduled GitHub Actions workflow that runs the crawl automatically once a day, a deployment of the API on Back4app and the frontend on Vercel, and Telegram notifications — subscribe/unsubscribe and restock/price-drop alerts, with the real webhook registered and verified against a live subscription (not just simulated locally).
+
+Quality gates: `NoonScraper.Tests` (75 xUnit tests — the detection rules, the upsert and Telegram-notify logic, and the API's paging/validation/rate-limiting through the real ASP.NET Core pipeline on an in-memory database) runs in CI on every push and PR alongside the frontend lint and build (`.github/workflows/ci.yml`). Not covered: the Playwright scrapers, which depend on the live site's markup. The API has no authentication; it is protected by rate limiting only — per client IP, plus a combined cap on the endpoints that trigger GitHub Actions runs (configurable under `RateLimiting:*`; see `Services/RateLimiting.cs`).
 
 Back4app's free tier has a real reliability gap worth knowing about before relying on the current URL staying put (see `docs/hosting.md`) — the API's URL changes whenever the container needs recreating, which has happened more than once.
 

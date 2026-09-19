@@ -1,0 +1,81 @@
+name: CI
+
+# The other workflows in this repo (daily-crawl, check-now, crawl-product) are
+# scraping jobs, not quality gates. This is the one that builds and tests the
+# code itself on every push and pull request.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (build + test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: Backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('Backend/**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: Build
+        run: dotnet build NoonScraper.sln --configuration Release
+
+      # The API integration tests boot the real ASP.NET Core pipeline against
+      # an in-memory database, so no Postgres or secrets are needed here.
+      - name: Test
+        run: dotnet test NoonScraper.sln --configuration Release --no-build --verbosity normal
+
+  frontend:
+    name: Frontend (lint + build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: Frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # Runs `tsc -b` first, so this is also the type-check.
+      - name: Build
+        run: npm run build

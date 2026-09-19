@@ -47,6 +47,12 @@ src/
 
 `api/types.ts` is a manual mirror of the backend's DTOs rather than a generated/shared type — ASP.NET Core serializes to camelCase with string enums by default (`Program.cs`'s `JsonStringEnumConverter`), so the two line up directly without a mapping layer. If a DTO's shape changes on the backend, this file needs a matching edit.
 
+## The product list is server-driven
+
+`ProductListPage` doesn't hold the whole catalog: search (debounced), category, sort key/direction, and page number are all sent to `GET /api/products`, which returns one page plus a total (`PagedResult<T>` in `api/types.ts`). The headline counts come from `GET /api/products/stats`. Changing any filter or sort resets to page 1, and a response that's been superseded by a newer query is dropped rather than rendered. A `429` from the API's rate limiter is turned into a plain-language message in `AddProductForm` and `CheckNowPanel`.
+
+Before shipping, `npm run lint` (oxlint) and `npm run build` (`tsc -b` then Vite) both need to pass — CI runs the same two commands.
+
 ## Telegram "Notify me"
 
 `NotifyMeButton` only renders once `VITE_TELEGRAM_BOT_USERNAME` is set in `.env` — see [`Backend/docs/telegram-notifications.md`](../Backend/docs/telegram-notifications.md) for why subscribing has to go through a Telegram deep link rather than a form on this page.

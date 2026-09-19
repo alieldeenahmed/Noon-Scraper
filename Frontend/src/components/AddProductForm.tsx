@@ -27,7 +27,9 @@ export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
           ? 'This product is already tracked.'
           : err instanceof ApiError && err.status === 400
             ? 'That doesn’t look like a noon.com product URL.'
-            : 'Something went wrong submitting that URL.'
+            : err instanceof ApiError && err.status === 429
+              ? 'Too many submissions — wait a minute and try again.'
+              : 'Something went wrong submitting that URL.'
       setMessage({ tone: 'error', text })
     } finally {
       setStatus('idle')

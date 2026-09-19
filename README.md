@@ -6,7 +6,23 @@ This is not a script that dumps scraped rows into a table. It's a system with a 
 
 **Live demo:** [noon-scraper-phi.vercel.app](https://noon-scraper-phi.vercel.app) · **API:** the current URL is tracked in [`Backend/README.md`](Backend/README.md) (it changes — see [`Backend/docs/hosting.md`](Backend/docs/hosting.md) for why, and don't be surprised if it's stale)
 
-![.NET 9](https://img.shields.io/badge/.NET-9-512BD4?logo=dotnet&logoColor=white) ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black) ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169E1?logo=postgresql&logoColor=white) ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white) ![MIT License](https://img.shields.io/badge/license-MIT-green)
+[![CI](https://github.com/alieldeenahmed/Noon-Scraper/actions/workflows/ci.yml/badge.svg)](https://github.com/alieldeenahmed/Noon-Scraper/actions/workflows/ci.yml) ![.NET 9](https://img.shields.io/badge/.NET-9-512BD4?logo=dotnet&logoColor=white) ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black) ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169E1?logo=postgresql&logoColor=white) ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white) ![MIT License](https://img.shields.io/badge/license-MIT-green)
+
+## Screenshots
+
+**Product list** — server-side search, category filter, sortable columns, and pagination over the tracked set:
+
+![Product list filtered to Laptops, with stats, search, sort and price/discount/last-crawled columns](docs/screenshots/product-list.png)
+
+**Product detail** — every crawl kept as a price-history log, with the fake-discount flag surfaced next to the product's own history (this product swung from EGP 624 to 702 and back, with 5 flagged discounts):
+
+![Product page for a VICHY shampoo showing its price history log and a "flagged as fake discount" tag](docs/screenshots/product-detail.png)
+
+**Mobile** — the same list on a phone-width viewport:
+
+<img src="docs/screenshots/product-list-mobile.png" alt="Product list on a mobile viewport" width="320">
+
+Captured from a local run against the real database; the data is real scraped noon.com data.
 
 ## Overview
 
@@ -39,9 +55,12 @@ Two things make this more than "scrape a page, show the data": the analysis is g
 **Backend**
 - Three-project solution separating shared data access, the API, and the Playwright-driving crawler, so the API has zero browser dependency
 - A `ProductUpserter` shared by the daily crawl, the on-demand crawl, and user-added re-crawls, so restock/discount/notification logic lives in exactly one place
+- Server-side search, sorting, category filtering, and pagination on the product list, plus a stats endpoint for the headline counts
+- Rate limiting (built-in ASP.NET Core limiter) with a tighter tier on the endpoints that trigger metered GitHub Actions runs
+- 75 automated tests, run in CI on every push and PR
 
 **Frontend**
-- Product list with search, category filters, and sortable columns (price, discount, last crawled)
+- Product list with debounced search, category filters, sortable columns (price, discount, last crawled), and a pager — all driven by the API
 - A product page that live-polls and fills in automatically while a freshly-submitted product is still being crawled, with an elapsed-time progress estimate
 - Price history rendered as a chronological log, plus a dedicated cross-merchant comparison panel
 
@@ -76,10 +95,11 @@ The boundary that matters here is the one between the API and the crawler. `Noon
 | Scraping | Playwright (.NET), headful Chromium | Category and product-page scraping, cross-merchant offer scraping |
 | Automation | GitHub Actions | Scheduled daily crawl; on-demand crawl and cross-merchant check via `repository_dispatch` |
 | Notifications | Telegram Bot API | Webhook-based subscribe/unsubscribe, outbound alerts |
+| Rate limiting | ASP.NET Core `RateLimiter` (built in) | Per-IP and combined caps, tighter on GitHub-dispatching endpoints |
+| Testing | xUnit · `WebApplicationFactory` · EF Core InMemory | Unit tests for the detection rules; API integration tests on the real pipeline — see [Testing](#testing) |
+| CI | GitHub Actions (`ci.yml`) | Backend build + test, frontend lint + build on every push/PR |
 | Linting | oxlint | Frontend lint (`npm run lint`) |
 | Hosting | Back4app (API, Docker) · Vercel (frontend) | Both free, card-free tiers |
-
-No automated test suite exists in this repository (backend or frontend) — see [Testing](#testing) below.
 
 ## Backend Architecture
 
@@ -87,7 +107,11 @@ The backend is three .NET projects with one clear separation: **`NoonScraper.Dat
 
 Dependency injection is plain ASP.NET Core built-ins (`AddDbContext`, `AddHttpClient<T>`, constructor injection via primary constructors) — no additional DI container. Configuration reads through `IConfiguration` with an explicit fallback pattern repeated across `Program.cs`, `GitHubDispatchService`, and `TelegramService`: try the standard nested key first (`ConnectionStrings:DefaultConnection`, `Telegram:BotToken`), then fall back to a flat environment variable name (`DATABASE`, `TELEGRAM_BOT_TOKEN`), because Back4app's environment-variable UI rejects the double-underscore naming .NET expects for nested keys.
 
-Validation is minimal and targeted rather than a generic framework: `ProductsController.CreateProduct` checks the submitted URL is an absolute `noon.com` link and rejects duplicates by normalized URL, returning `400`/`409` accordingly; everything else trusts route-bound IDs and returns `404` via an existence check. Error handling follows a "best-effort, don't fail the request" pattern in exactly the places where that's the honest tradeoff: dispatching a GitHub Actions run is wrapped in try/catch and only logs a warning on failure, because the product/request row is already saved either way and a GitHub API hiccup shouldn't turn a successful write into a failed response.
+Validation is minimal and targeted rather than a generic framework: `ProductsController.CreateProduct` checks the submitted URL is an absolute link on `noon.com` or a real subdomain of it (so lookalike hosts such as `evilnoon.com` are rejected) and rejects duplicates by normalized URL, returning `400`/`409` accordingly; the list endpoint rejects unknown `sortBy`/`sortDir` values with `400` and clamps `page`/`pageSize` rather than failing; everything else trusts route-bound IDs and returns `404` via an existence check. Error handling follows a "best-effort, don't fail the request" pattern in exactly the places where that's the honest tradeoff: dispatching a GitHub Actions run is wrapped in try/catch and only logs a warning on failure, because the product/request row is already saved either way and a GitHub API hiccup shouldn't turn a successful write into a failed response.
+
+The product list is paged, searched, and sorted in the database (`ProductsController.GetProducts`): each product is projected together with its latest `PriceSnapshot`, filtered and ordered on that projection, and only the requested page is materialized. Products with no value for the sorted field (never crawled, no discount) sort last in either direction rather than wherever Postgres's NULL ordering would put them, and ties break on `Id` so pages never repeat or skip rows.
+
+Rate limiting uses ASP.NET Core's built-in limiter (`Services/RateLimiting.cs`), with three fixed one-minute windows, all configurable under `RateLimiting:*`: every request per client IP (300), the endpoints that dispatch a GitHub Actions run per client IP (5), and those same endpoints across all clients combined (30). The combined cap exists because per-IP limits are only as trustworthy as the client IP, and behind the hosting platform's proxy chain of unknown depth the IP comes from a client-forgeable `X-Forwarded-For` header — the combined bucket protects the metered GitHub Actions quota regardless of what IP a caller claims. Rejections return `429` with `Retry-After`, and the limiter sits after CORS so the browser can still read them.
 
 CORS is environment-aware rather than a single hardcoded origin: in `Development`, any `localhost` origin is trusted regardless of port (Vite's dev server doesn't always land on the same port), while outside `Development` only the deployed Vercel origin is allowed.
 
@@ -180,18 +204,19 @@ Failure handling is per-item, not per-run: `CategoryScraper` failures for one ca
 
 ## API
 
-No authentication or authorization exists anywhere in this API — every endpoint is open. Routes are grouped by feature below rather than listed exhaustively; see `Backend/README.md` for the full reference table.
+No authentication or authorization exists anywhere in this API — every endpoint is open, protected only by the rate limits described above. Routes are grouped by feature below rather than listed exhaustively; see `Backend/README.md` for the full reference table.
 
 **Products**
-- `GET /api/products` — list every tracked product, with each one's latest price/stock/discount already joined in; accepts an optional `?category=` filter
+- `GET /api/products` — one page of tracked products, each with its latest price/stock/discount already joined in. Query parameters: `category`, `search` (case-insensitive substring of the name, or the URL for products not yet crawled), `sortBy` (`crawled` \| `price` \| `discount`, default `crawled`), `sortDir` (`asc` \| `desc`, default `desc`), `page` (default 1), `pageSize` (default 25, max 100). Returns `{ items, total, page, pageSize, totalPages }`.
+- `GET /api/products/stats` — `{ total, inStock, onDiscount }` for the headline counts, optionally scoped with `?category=`
 - `GET /api/products/{id}` — full detail for one product, including the same latest-snapshot fields
-- `POST /api/products` — submit a `{ "url": "..." }` to track; validates it's a `noon.com` link, normalizes it, rejects duplicates with `409`, inserts a bare record, and best-effort dispatches an immediate crawl
+- `POST /api/products` — submit a `{ "url": "..." }` to track; validates it's a `noon.com` link, normalizes it, rejects duplicates with `409`, inserts a bare record, and best-effort dispatches an immediate crawl. Rate-limited (dispatch tier).
 - `GET /api/products/{id}/history` — every `PriceSnapshot` for a product, oldest first
 - `GET /api/products/{id}/discount-flags` — every fake-discount flag raised for a product, most recent first
 - `GET /api/products/{id}/restocks` — every restock event for a product, most recent first
 
 **Cross-merchant check**
-- `POST /api/products/{id}/check-now` — creates a pending check request and dispatches a live scrape via GitHub Actions; returns `202` with a request ID immediately, since there's nothing to return synchronously
+- `POST /api/products/{id}/check-now` — creates a pending check request and dispatches a live scrape via GitHub Actions; returns `202` with a request ID immediately, since there's nothing to return synchronously. Rate-limited (dispatch tier).
 - `GET /api/products/{id}/check-now/{requestId}` — poll for that request's result; once `Completed`, returns every seller's offer sorted lowest-price-first
 
 **Telegram**
@@ -201,33 +226,48 @@ No authentication or authorization exists anywhere in this API — every endpoin
 
 The frontend is two routes (`/` and `/products/:id`) under one `Layout`, with no external data-fetching or state-management library — `src/api/client.ts` is a small typed `fetch` wrapper, one function per endpoint, and each page manages its own state with `useState`/`useEffect`. `src/api/types.ts` manually mirrors the backend's DTOs field-for-field rather than being generated, which is a real coupling point noted directly in the codebase: a backend DTO change means a matching manual edit here.
 
-`ProductListPage` fetches the product list, then filters (search, category) and sorts (last crawled / price / discount) entirely client-side over that one response — there's no server-side search or pagination. `ProductDetailPage` is the more involved of the two: on top of rendering price history, restocks, and discount flags, it detects a product with no crawl data yet and polls `GET /api/products/{id}` every four seconds (capped at five minutes) until `lastCrawledAt` is populated, showing `CrawlProgressBar` — an elapsed-time estimate against a typical run, not a real step tracker, since nothing reports granular progress from inside the GitHub Actions job. `CheckNowPanel` follows the same polling pattern against the check-now endpoints. `NotifyMeButton` links out to `https://t.me/<bot>?start=<productId>` rather than collecting any input itself, since Telegram — not this frontend — is what supplies the chat ID.
+`ProductListPage` holds the query state (category, search, sort key/direction, page) and sends it to the API on every change: search is debounced (300ms), changing any filter or sort resets to page 1, and a stale response is discarded if a newer query has superseded it. The previous page stays on screen while the next one loads, and the headline counts come from the separate stats endpoint rather than from counting rows client-side. `ProductDetailPage` is the more involved of the two: on top of rendering price history, restocks, and discount flags, it detects a product with no crawl data yet and polls `GET /api/products/{id}` every four seconds (capped at five minutes) until `lastCrawledAt` is populated, showing `CrawlProgressBar` — an elapsed-time estimate against a typical run, not a real step tracker, since nothing reports granular progress from inside the GitHub Actions job. `CheckNowPanel` follows the same polling pattern against the check-now endpoints. `NotifyMeButton` links out to `https://t.me/<bot>?start=<productId>` rather than collecting any input itself, since Telegram — not this frontend — is what supplies the chat ID.
 
 ## Testing
 
-There is no automated test suite in this repository — no backend test project (no `*.Tests.csproj` exists in the solution) and no frontend test files or test runner configured in `package.json`. Verification described throughout the docs (`engineering-log.md`, `check-now.md`, `crawl-on-submit.md`) was done manually against the live system: real product URLs, real database queries, and watching real GitHub Actions runs complete. This is a genuine gap rather than an oversight worth glossing over.
+`Backend/NoonScraper.Tests` is an xUnit project with **75 tests** (counted from `dotnet test`, theory rows included), run with `dotnet test` from `Backend/`:
+
+| Area | Tests | What's covered |
+|---|---|---|
+| `PriceHistoryAnalyzer` | 16 | Restock rule (first sighting, already in stock, only the *latest* snapshot counts, other products ignored) and fake-discount rule (the 10% spike boundary, "beats the historical low", no history, unsaved product) |
+| `UrlNormalizer` | 7 | Tracking-query stripping, same product with different tokens, fragments, malformed input |
+| `ProductUpserter` | 6 | Create vs. update (no duplicate products), restock event and discount flag created from real crawl sequences |
+| `TelegramNotifier` | 8 | Silent baseline, price-drop alert, restock alert, no-drop stays quiet, a failed send doesn't advance the baseline or throw |
+| Products API | 30 | Integration tests on the real ASP.NET Core pipeline: paging, clamping, sort directions with nulls last, search, category filter, stats, input validation (including lookalike hosts), dispatch success/failure, check-now lifecycle |
+| Rate limiting | 8 | Per-IP dispatch limit, per-IP isolation, the combined cap under spoofed IPs, `Retry-After`, CORS headers on a `429` |
+
+The API tests boot the actual app with `WebApplicationFactory`, swap Npgsql for EF Core's in-memory provider and the GitHub dispatcher for a fake, and go through real HTTP. Worth knowing about their limits: the in-memory provider is more lenient than Npgsql, so the paged/sorted/searched list query was additionally exercised by hand against the real Postgres database; the Playwright scrapers (`CategoryScraper`, `ProductPageScraper`, `OfferScraper`) have no automated tests, since they depend on the live site's markup; there are no frontend tests; and code coverage isn't measured. Writing these tests found one real bug — the URL host check used `EndsWith("noon.com")` and so accepted `evilnoon.com` — see `engineering-log.md` #16.
 
 ## CI/CD
 
-There is no build/test/lint pipeline that runs on push or pull request. The three GitHub Actions workflows in this repository are compute infrastructure for scraping, not code-quality gates:
+Four GitHub Actions workflows. One is a code-quality gate; the other three are compute infrastructure for scraping, not quality gates:
 
+- **`ci.yml`** — runs on every push to `main` and every pull request (skipping docs-only changes). A backend job builds the whole solution in Release and runs the test suite; a frontend job runs `npm ci`, oxlint, and `npm run build` (which type-checks with `tsc -b` first). No database or secrets needed — the integration tests use an in-memory database.
 - **`daily-crawl.yml`** — runs on a `0 3 * * *` UTC cron schedule (also accepts manual `workflow_dispatch`); builds the crawler, installs Chrome + Playwright's system dependencies, and runs the full category + user-added-product crawl under `xvfb-run`
 - **`check-now.yml`** — triggered by a `repository_dispatch` event from the API; runs one on-demand cross-merchant check
 - **`crawl-product.yml`** — triggered the same way; crawls one freshly-submitted product immediately
 
-All three share the same runner setup (`ubuntu-24.04`, pinned rather than `ubuntu-latest`, after hitting a Playwright compatibility break on a newer Ubuntu release locally) and now cache NuGet packages and the downloaded Playwright browser build across runs (`actions/cache`), skipping the ~150MB Chrome download entirely once that cache is warm — added specifically because every run was rebuilding from nothing.
+The three scraping workflows share the same runner setup (`ubuntu-24.04`, pinned rather than `ubuntu-latest`, after hitting a Playwright compatibility break on a newer Ubuntu release locally) and now cache NuGet packages and the downloaded Playwright browser build across runs (`actions/cache`), skipping the ~150MB Chrome download entirely once that cache is warm — added specifically because every run was rebuilding from nothing.
 
 ## Project Structure
 
 ```
 Noon-Scraper/
-├── .github/workflows/          # daily-crawl, check-now, crawl-product
+├── .github/workflows/          # ci, daily-crawl, check-now, crawl-product
+├── docs/screenshots/           # images used in this README
 ├── Backend/
 │   ├── NoonScraper.Data/       # EF Core models, AppDbContext, migrations,
 │   │                           # PriceHistoryAnalyzer, UrlNormalizer
-│   ├── NoonScraper.Api/        # Controllers, Dtos, Services (no Playwright)
+│   ├── NoonScraper.Api/        # Controllers, Dtos, Services (no Playwright),
+│   │                           # rate limiting
 │   ├── NoonScraper.Crawler/    # Playwright scrapers, StealthBrowser,
 │   │                           # ProductUpserter, TelegramNotifier
+│   ├── NoonScraper.Tests/      # xUnit: unit + API integration tests
 │   ├── docs/                   # hosting, telegram, check-now, engineering log
 │   └── Dockerfile
 └── Frontend/
@@ -247,26 +287,27 @@ Noon-Scraper/
 
 ### Backend
 
-```bash
-cd Backend/NoonScraper.Api    # and again for NoonScraper.Crawler
-dotnet user-secrets init
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "<your Postgres connection string>"
+From the repository root:
 
-cd ../NoonScraper.Data
-dotnet ef database update --startup-project ../NoonScraper.Api
+```bash
+cd Backend/NoonScraper.Api
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "<your Postgres connection string>"
+dotnet tool restore
+dotnet ef database update --project ../NoonScraper.Data --startup-project .
 ```
 
-Telegram notifications are optional — without `Telegram:BotToken` / `Telegram:WebhookSecret` set via user secrets, the app runs fine and notifications are silently skipped.
+Set the same `ConnectionStrings:DefaultConnection` secret in `Backend/NoonScraper.Crawler` too if you'll run the crawler. Telegram notifications are optional — without `Telegram:BotToken` / `Telegram:WebhookSecret` set via user secrets, the app runs fine and notifications are silently skipped.
 
 ```bash
-# Run the API
-cd Backend/NoonScraper.Api
-dotnet run
+cd Backend
 
-# Run the crawler (needs Chrome + Playwright's system deps installed once:
-# dotnet run -- install chrome && dotnet run -- install-deps)
-cd Backend/NoonScraper.Crawler
-dotnet run
+dotnet test                                # no database or secrets needed
+dotnet run --project NoonScraper.Api       # http://localhost:5176
+
+# The crawler needs Chrome + Playwright's system dependencies, installed once:
+dotnet run --project NoonScraper.Crawler -- install chrome
+dotnet run --project NoonScraper.Crawler -- install-deps
+dotnet run --project NoonScraper.Crawler
 ```
 
 ### Frontend
@@ -297,11 +338,13 @@ See [`Backend/README.md`](Backend/README.md) and [`Frontend/README.md`](Frontend
 - **How duplicate products are prevented:** Noon appends a per-session tracking query string to every product URL. Without normalizing it away, the same real product was being inserted as a new row on every crawl (a real bug caught during testing — 10 duplicate rows for one item). `UrlNormalizer.Normalize()` strips to scheme+host+path before any write or comparison, shared between the crawler and the API's own duplicate check.
 - **How price history is stored:** append-only `PriceSnapshot` rows rather than mutating a single "current price" field, specifically because both detection rules and the frontend's price-history log need the full sequence, not just the latest value.
 - **How scraping failures are handled:** per-item try/catch during the category crawl loop (one category failing doesn't abort the run), and a dedicated `Failed` status with an error message for on-demand requests, rather than either crashing the whole job or leaving a request silently stuck.
+- **Why the product list is paged, searched, and sorted in the database:** the list used to return every tracked product and let the browser filter and sort it. That was fine at a few dozen rows and stops being fine as the tracked set grows — the payload was unbounded. The API now returns one page plus a total, with the counts the page header needs served by a separate stats endpoint.
+- **Why rate limiting has a combined cap on top of the per-IP limits:** the endpoints that dispatch GitHub Actions runs are the only ones that spend a metered resource. Per-IP limits depend on the client IP, and behind an unknown-depth proxy chain that IP is read from a forgeable header, so a determined caller could rotate it. A single bucket shared by all callers bounds the spend no matter what.
 - **Why check-now is async (poll-based) instead of a synchronous response:** there's nothing to return until the GitHub Actions job actually finishes the scrape, and a synchronous HTTP handler can't sit open for the minutes that takes — so the API returns `202` with an ID immediately and the client polls a second endpoint.
 
 ## What I deliberately didn't claim
 
-No authentication, no automated tests, and no CI validation pipeline exist in this codebase — they're not glossed over above, and adding them (particularly integration tests around `PriceHistoryAnalyzer` and the upsert/normalization path) would be the most valuable next step for this project's engineering maturity.
+There is no authentication or authorization — every endpoint is open, with rate limiting as the only protection. There are no frontend tests, no tests for the Playwright scrapers, and no coverage measurement. The rate limiter is in-process, so it would not hold across multiple API instances (this deployment runs one). Those are the honest next steps for this project's engineering maturity.
 
 ## License
 

@@ -23,6 +23,24 @@ export interface ProductListItem {
   lastCrawledAt: string | null
 }
 
+export interface PagedResult<T> {
+  items: T[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+export interface ProductStats {
+  total: number
+  inStock: number
+  onDiscount: number
+}
+
+export type ProductSortKey = 'crawled' | 'price' | 'discount'
+
+export type SortDirection = 'asc' | 'desc'
+
 export interface ProductDetail {
   id: number
   url: string

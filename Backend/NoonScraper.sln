@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NoonScraper.Data", "NoonScr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NoonScraper.Crawler", "NoonScraper.Crawler\NoonScraper.Crawler.csproj", "{2A36B021-C8A1-440E-8DC2-9507AC82902C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NoonScraper.Tests", "NoonScraper.Tests\NoonScraper.Tests.csproj", "{015AA52A-6241-48B3-890D-5FA93DABBFB5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{2A36B021-C8A1-440E-8DC2-9507AC82902C}.Release|x64.Build.0 = Release|Any CPU
 		{2A36B021-C8A1-440E-8DC2-9507AC82902C}.Release|x86.ActiveCfg = Release|Any CPU
 		{2A36B021-C8A1-440E-8DC2-9507AC82902C}.Release|x86.Build.0 = Release|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Debug|x64.Build.0 = Debug|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Debug|x86.Build.0 = Debug|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Release|x64.ActiveCfg = Release|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Release|x64.Build.0 = Release|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Release|x86.ActiveCfg = Release|Any CPU
+		{015AA52A-6241-48B3-890D-5FA93DABBFB5}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
