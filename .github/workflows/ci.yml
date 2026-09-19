@@ -46,6 +46,12 @@ jobs:
       - name: Build
         run: dotnet build NoonScraper.sln --configuration Release
 
+      # The scraper tests drive a real (headless) Chrome against saved noon.com
+      # markup, using the Chrome that ships on GitHub's Ubuntu runners - this
+      # prints the version so a missing browser is obvious in the log.
+      - name: Show Chrome version
+        run: google-chrome --version
+
       # The API integration tests boot the real ASP.NET Core pipeline against
       # an in-memory database, so no Postgres or secrets are needed here.
       - name: Test

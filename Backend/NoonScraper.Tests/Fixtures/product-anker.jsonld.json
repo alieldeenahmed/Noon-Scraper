@@ -1,0 +1,35 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "Anker Nano 45W USB C Charger Block Fast Charging Compact Foldable Plug A2692",
+  "sku": "N70294248V",
+  "url": "https://www.noon.com/egypt-en/anker-nano-45w-usb-c-charger-block-fast-charging-compact-foldable-plug-a2692/N70294248V/p/",
+  "brand": {
+    "@type": "Brand",
+    "name": "Anker"
+  },
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": 4.3,
+    "reviewCount": 74,
+    "bestRating": 5
+  },
+  "offers": {
+    "@type": "Offer",
+    "url": "https://www.noon.com/egypt-en/anker-nano-45w-usb-c-charger-block-fast-charging-compact-foldable-plug-a2692/N70294248V/p/",
+    "price": 874,
+    "priceCurrency": "EGP",
+    "itemCondition": "https://schema.org/NewCondition",
+    "availability": "https://schema.org/InStock",
+    "seller": {
+      "@type": "Organization",
+      "name": "Wi-Tech",
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": 2,
+        "bestRating": 5,
+        "ratingCount": 55
+      }
+    }
+  }
+}

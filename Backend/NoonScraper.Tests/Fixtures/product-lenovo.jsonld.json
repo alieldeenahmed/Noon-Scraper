@@ -1,0 +1,35 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "Lenovo LOQ 15IAX9 Gaming Laptop with LA1 Ai Chip | NVIDIA GeForce RTX 3050 6GB | Intel 12th Gen i5‑12600HX | 15.6 Inch FHD IPS 144Hz 100% sRGB with G‑Sync | 16GB DDR5 RAM | 512GB PCIe SSD | HD Camera | Backlit Keyboard | Wi‑Fi 6 | Win11 | English/Arabic Luna Grey",
+  "sku": "N70251796V",
+  "url": "https://www.noon.com/egypt-en/lenovo-loq-15iax9-gaming-laptop-with-la1-ai-chip-nvidia-geforce-rtx-3050-6gb-intel-12th-gen-i5-12600hx-15-6-inch-fhd-ips-144hz-100-srgb-with-g-sync-16gb-ddr5-ram-512gb-pcie-ssd-hd-camera-backlit-keyboard-wi-fi-6-win11-english-arabic-luna-grey/N70251796V/p/",
+  "brand": {
+    "@type": "Brand",
+    "name": "Lenovo"
+  },
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": 5,
+    "reviewCount": 2,
+    "bestRating": 5
+  },
+  "offers": {
+    "@type": "Offer",
+    "url": "https://www.noon.com/egypt-en/lenovo-loq-15iax9-gaming-laptop-with-la1-ai-chip-nvidia-geforce-rtx-3050-6gb-intel-12th-gen-i5-12600hx-15-6-inch-fhd-ips-144hz-100-srgb-with-g-sync-16gb-ddr5-ram-512gb-pcie-ssd-hd-camera-backlit-keyboard-wi-fi-6-win11-english-arabic-luna-grey/N70251796V/p/",
+    "price": 51704,
+    "priceCurrency": "EGP",
+    "itemCondition": "https://schema.org/NewCondition",
+    "availability": "https://schema.org/InStock",
+    "seller": {
+      "@type": "Organization",
+      "name": "Lap-Tech",
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": 3.5,
+        "bestRating": 5,
+        "ratingCount": 73
+      }
+    }
+  }
+}

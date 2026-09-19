@@ -1,0 +1,42 @@
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Home",
+      "item": "https://www.noon.com/egypt-en/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Electronics & Mobiles",
+      "item": "https://www.noon.com/egypt-en/electronics-and-mobiles/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Mobiles & Accessories",
+      "item": "https://www.noon.com/egypt-en/electronics-and-mobiles/mobiles-and-accessories/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 4,
+      "name": "Mobile Accessories",
+      "item": "https://www.noon.com/egypt-en/electronics-and-mobiles/mobiles-and-accessories/accessories-16176/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 5,
+      "name": "Mobile Chargers",
+      "item": "https://www.noon.com/egypt-en/electronics-and-mobiles/mobiles-and-accessories/accessories-16176/chargers-17982/"
+    },
+    {
+      "@type": "ListItem",
+      "position": 6,
+      "name": "Wall Chargers",
+      "item": "https://www.noon.com/egypt-en/electronics-and-mobiles/mobiles-and-accessories/accessories-16176/chargers-17982/wall-chargers/"
+    }
+  ]
+}

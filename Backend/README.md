@@ -74,8 +74,12 @@ Telegram notifications need two more secrets, set the same way (`Telegram:BotTok
 # Build everything
 dotnet build
 
-# Run the tests (unit + API integration; no database or secrets needed)
+# Run the tests (unit, API integration, and scraper tests; no database or secrets
+# needed, but the scraper tests drive a real Chrome, which must be installed)
 dotnet test
+
+# ...or just the ones that don't need a browser
+dotnet test --filter "Category!=Browser"
 
 # Run the API
 cd NoonScraper.Api
@@ -107,7 +111,7 @@ The Crawler launches a real, visible (headful) Chrome instance — this only wor
 
 This project is feature-complete. **Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping and an immediate one-off crawl on submit (rather than waiting for the next scheduled run — see `docs/crawl-on-submit.md`), restock detection, fake-discount detection, on-demand cross-merchant check-now (via GitHub Actions), a scheduled GitHub Actions workflow that runs the crawl automatically once a day, a deployment of the API on Back4app and the frontend on Vercel, and Telegram notifications — subscribe/unsubscribe and restock/price-drop alerts, with the real webhook registered and verified against a live subscription (not just simulated locally).
 
-Quality gates: `NoonScraper.Tests` (75 xUnit tests — the detection rules, the upsert and Telegram-notify logic, and the API's paging/validation/rate-limiting through the real ASP.NET Core pipeline on an in-memory database) runs in CI on every push and PR alongside the frontend lint and build (`.github/workflows/ci.yml`). Not covered: the Playwright scrapers, which depend on the live site's markup. The API has no authentication; it is protected by rate limiting only — per client IP, plus a combined cap on the endpoints that trigger GitHub Actions runs (configurable under `RateLimiting:*`; see `Services/RateLimiting.cs`).
+Quality gates: `NoonScraper.Tests` (109 xUnit tests — the detection rules, the upsert and Telegram-notify logic, the API's paging/validation/rate-limiting through the real ASP.NET Core pipeline on an in-memory database, and the three Playwright scrapers run in a real browser against saved noon.com markup) runs in CI on every push and PR alongside the frontend lint and build (`.github/workflows/ci.yml`). Not covered: a change in Noon's live markup — the scraper fixtures (`NoonScraper.Tests/Fixtures/`) are static snapshots, so they catch scraper regressions but only a run against the live site notices the site itself changing. The API has no authentication; it is protected by rate limiting only — per client IP, plus a combined cap on the endpoints that trigger GitHub Actions runs (configurable under `RateLimiting:*`; see `Services/RateLimiting.cs`).
 
 Back4app's free tier has a real reliability gap worth knowing about before relying on the current URL staying put (see `docs/hosting.md`) — the API's URL changes whenever the container needs recreating, which has happened more than once.
 

@@ -57,7 +57,7 @@ Two things make this more than "scrape a page, show the data": the analysis is g
 - A `ProductUpserter` shared by the daily crawl, the on-demand crawl, and user-added re-crawls, so restock/discount/notification logic lives in exactly one place
 - Server-side search, sorting, category filtering, and pagination on the product list, plus a stats endpoint for the headline counts
 - Rate limiting (built-in ASP.NET Core limiter) with a tighter tier on the endpoints that trigger metered GitHub Actions runs
-- 75 automated tests, run in CI on every push and PR
+- 109 automated tests, run in CI on every push and PR — including the Playwright scrapers, run against saved noon.com markup
 
 **Frontend**
 - Product list with debounced search, category filters, sortable columns (price, discount, last crawled), and a pager — all driven by the API
@@ -96,7 +96,7 @@ The boundary that matters here is the one between the API and the crawler. `Noon
 | Automation | GitHub Actions | Scheduled daily crawl; on-demand crawl and cross-merchant check via `repository_dispatch` |
 | Notifications | Telegram Bot API | Webhook-based subscribe/unsubscribe, outbound alerts |
 | Rate limiting | ASP.NET Core `RateLimiter` (built in) | Per-IP and combined caps, tighter on GitHub-dispatching endpoints |
-| Testing | xUnit · `WebApplicationFactory` · EF Core InMemory | Unit tests for the detection rules; API integration tests on the real pipeline — see [Testing](#testing) |
+| Testing | xUnit · `WebApplicationFactory` · EF Core InMemory · Playwright | Unit tests for the detection rules; API integration tests on the real pipeline; scraper tests in a real browser against saved markup — see [Testing](#testing) |
 | CI | GitHub Actions (`ci.yml`) | Backend build + test, frontend lint + build on every push/PR |
 | Linting | oxlint | Frontend lint (`npm run lint`) |
 | Hosting | Back4app (API, Docker) · Vercel (frontend) | Both free, card-free tiers |
@@ -230,7 +230,7 @@ The frontend is two routes (`/` and `/products/:id`) under one `Layout`, with no
 
 ## Testing
 
-`Backend/NoonScraper.Tests` is an xUnit project with **75 tests** (counted from `dotnet test`, theory rows included), run with `dotnet test` from `Backend/`:
+`Backend/NoonScraper.Tests` is an xUnit project with **109 tests** (counted from `dotnet test`, theory rows included), run with `dotnet test` from `Backend/`. The 75 that don't need a browser run with `dotnet test --filter "Category!=Browser"`:
 
 | Area | Tests | What's covered |
 |---|---|---|
@@ -240,8 +240,15 @@ The frontend is two routes (`/` and `/products/:id`) under one `Layout`, with no
 | `TelegramNotifier` | 8 | Silent baseline, price-drop alert, restock alert, no-drop stays quiet, a failed send doesn't advance the baseline or throw |
 | Products API | 30 | Integration tests on the real ASP.NET Core pipeline: paging, clamping, sort directions with nulls last, search, category filter, stats, input validation (including lookalike hosts), dispatch success/failure, check-now lifecycle |
 | Rate limiting | 8 | Per-IP dispatch limit, per-IP isolation, the combined cap under spoofed IPs, `Retry-After`, CORS headers on a `429` |
+| `CategoryScraper` | 15 | Three real, unmodified tiles parsed field by field; both Noon tile templates; thousands separators; Arabic and English discount badges; missing rating; tiles that aren't product links are skipped; a page with no tiles throws so the crawl can skip that category |
+| `ProductPageScraper` | 13 | Two real JSON-LD products; discount derived from the pre-discount price (including the "not actually higher" boundary); stock from `availability`; `offers` as an array; missing rating/seller; a malformed or non-Product JSON-LD block is skipped; no Product block returns `null` |
+| `OfferScraper` | 6 | Six real seller cards read from the opened "other sellers" panel (selected card, discounted seller, "No ratings yet.", decimal price); fallback to the page's own offer when there's no panel, no cards, no seller, or no product data |
 
-The API tests boot the actual app with `WebApplicationFactory`, swap Npgsql for EF Core's in-memory provider and the GitHub dispatcher for a fake, and go through real HTTP. Worth knowing about their limits: the in-memory provider is more lenient than Npgsql, so the paged/sorted/searched list query was additionally exercised by hand against the real Postgres database; the Playwright scrapers (`CategoryScraper`, `ProductPageScraper`, `OfferScraper`) have no automated tests, since they depend on the live site's markup; there are no frontend tests; and code coverage isn't measured. Writing these tests found one real bug — the URL host check used `EndsWith("noon.com")` and so accepted `evilnoon.com` — see `engineering-log.md` #16.
+The API tests boot the actual app with `WebApplicationFactory`, swap Npgsql for EF Core's in-memory provider and the GitHub dispatcher for a fake, and go through real HTTP.
+
+The scraper tests run the real scrapers in a real headless Chrome with the network cut off: Playwright answers every request with HTML assembled from saved noon.com markup in `Backend/NoonScraper.Tests/Fixtures/`, so the actual selectors are exercised rather than a mock of them. Those fixtures are trimmed captures of real pages (their README lists exactly what is captured and what is derived). They need Chrome installed — GitHub's Ubuntu runners have it — and I checked they fail when they should by breaking the discount selector, the seller-price selector, and the `>` in the discount rule, each caught by the expected tests.
+
+Worth knowing about the limits: the in-memory provider is more lenient than Npgsql, so the paged/sorted/searched list query was additionally exercised by hand against the real Postgres database; the scraper fixtures are static snapshots, so they catch a change to the *scraper* that breaks parsing but cannot notice Noon changing its *markup* — only a run against the live site does that; there are no frontend tests; and code coverage isn't measured. Writing the API tests found one real bug — the URL host check used `EndsWith("noon.com")` and so accepted `evilnoon.com` — see `engineering-log.md` #16.
 
 ## CI/CD
 
@@ -301,7 +308,8 @@ Set the same `ConnectionStrings:DefaultConnection` secret in `Backend/NoonScrape
 ```bash
 cd Backend
 
-dotnet test                                # no database or secrets needed
+dotnet test                                # no database or secrets needed; the scraper tests need Chrome installed
+dotnet test --filter "Category!=Browser"   # the 75 tests that don't need a browser
 dotnet run --project NoonScraper.Api       # http://localhost:5176
 
 # The crawler needs Chrome + Playwright's system dependencies, installed once:
@@ -344,7 +352,7 @@ See [`Backend/README.md`](Backend/README.md) and [`Frontend/README.md`](Frontend
 
 ## What I deliberately didn't claim
 
-There is no authentication or authorization — every endpoint is open, with rate limiting as the only protection. There are no frontend tests, no tests for the Playwright scrapers, and no coverage measurement. The rate limiter is in-process, so it would not hold across multiple API instances (this deployment runs one). Those are the honest next steps for this project's engineering maturity.
+There is no authentication or authorization — every endpoint is open, with rate limiting as the only protection. There are no frontend tests and no coverage measurement, and the scraper tests use saved snapshots, so they can't detect Noon changing its live markup. The rate limiter is in-process, so it would not hold across multiple API instances (this deployment runs one). Those are the honest next steps for this project's engineering maturity.
 
 ## License
 
