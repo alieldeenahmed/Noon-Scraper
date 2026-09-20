@@ -22,11 +22,32 @@ jobs:
   backend:
     name: Backend (build + test)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     defaults:
       run:
         working-directory: Backend
+
+    # The integration tests run against real PostgreSQL - the same engine as
+    # production - because they exercise unique and partial indexes, advisory locks,
+    # foreign keys and real transactions, none of which an in-memory fake enforces.
+    # Locally the tests start an embedded Postgres by themselves; here they use this
+    # service container instead (each test still gets its own database).
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NOON_TEST_POSTGRES: "Host=localhost;Port=5432;Username=postgres;Password=test;Database=postgres"
 
     steps:
       - uses: actions/checkout@v4
@@ -52,13 +73,13 @@ jobs:
       - name: Show Chrome version
         run: google-chrome --version
 
-      # The API integration tests boot the real ASP.NET Core pipeline against
-      # an in-memory database, so no Postgres or secrets are needed here.
+      # The API integration tests boot the real ASP.NET Core pipeline against the
+      # Postgres service above; no secrets are needed.
       - name: Test
         run: dotnet test NoonScraper.sln --configuration Release --no-build --verbosity normal
 
   frontend:
-    name: Frontend (lint + build)
+    name: Frontend (lint + test + build)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -81,6 +102,11 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      # Component and API-client tests, including the contract test that parses the
+      # JSON fixtures the backend's ContractTests pin down.
+      - name: Test
+        run: npm test
 
       # Runs `tsc -b` first, so this is also the type-check.
       - name: Build

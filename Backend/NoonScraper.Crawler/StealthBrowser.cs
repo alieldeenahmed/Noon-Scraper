@@ -8,7 +8,7 @@ public sealed class StealthBrowser : IAsyncDisposable
     private readonly IBrowser _browser;
     private readonly IBrowserContext _context;
 
-    public IPage Page { get; }
+    public IPage Page { get; private set; }
 
     private StealthBrowser(IPlaywright playwright, IBrowser browser, IBrowserContext context, IPage page)
     {
@@ -67,10 +67,50 @@ public sealed class StealthBrowser : IAsyncDisposable
         return new StealthBrowser(playwright, browser, context, page);
     }
 
+    // After a failed navigation the page can be left mid-load, on an error
+    // document, or with a hung renderer. A fresh page in the same context (so the
+    // stealth script and cookies carry over) keeps that from spreading to the
+    // next product.
+    public async Task ResetPageAsync()
+    {
+        try
+        {
+            await Page.CloseAsync();
+        }
+        catch (PlaywrightException)
+        {
+            // Already gone - that's the situation this method exists for.
+        }
+
+        Page = await _context.NewPageAsync();
+    }
+
+    // Closes the browser out from under whatever is in flight, so a cancelled job
+    // stops now instead of finishing a 20-second wait. In-flight Playwright calls
+    // then fail, and the caller reports the cancellation.
+    public async Task AbortAsync()
+    {
+        try
+        {
+            await _browser.CloseAsync();
+        }
+        catch (PlaywrightException)
+        {
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
-        await _context.CloseAsync();
-        await _browser.CloseAsync();
+        // Each step may already have been torn down by AbortAsync.
+        try
+        {
+            await _context.CloseAsync();
+            await _browser.CloseAsync();
+        }
+        catch (PlaywrightException)
+        {
+        }
+
         _playwright.Dispose();
     }
 }

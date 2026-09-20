@@ -31,12 +31,12 @@ public sealed class BrowserFixture : IAsyncLifetime
         }
     }
 
-    public async Task<IPage> PageServingAsync(string html)
+    public async Task<IPage> PageServingAsync(string html, int status = 200)
     {
         var context = await _browser.NewContextAsync();
         await context.RouteAsync("**/*", route => route.FulfillAsync(new RouteFulfillOptions
         {
-            Status = 200,
+            Status = status,
             ContentType = "text/html; charset=utf-8",
             Body = html
         }));

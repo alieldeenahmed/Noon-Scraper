@@ -6,23 +6,21 @@ Without it, `POST /api/products` just inserts a bare row — `Url` and nothing e
 
 ## The flow
 
-1. `POST /api/products` validates the URL, normalizes it, rejects duplicates, and inserts the bare `Product` row as before — then, best-effort, calls `GitHubDispatchService.TriggerCrawlProductAsync(product.Id)`, which fires a `repository_dispatch` event (`crawl-product`) the same way `check-now` does, just with a different event type and payload.
-2. The `201 Created` response still returns immediately with the bare record — there's nothing to scrape yet, so nothing to return synchronously, same as `check-now`'s `202`.
-3. GitHub Actions receives the dispatch and runs [`crawl-product.yml`](../../.github/workflows/crawl-product.yml), which invokes `NoonScraper.Crawler crawl-product <productId>` — a new CLI mode in `Program.cs` that loads that one product, scrapes its detail page (`ProductPageScraper`, the same JSON-LD-based scraper the daily crawl and user-added re-crawls use), and upserts the result.
-4. The frontend's product page polls `GET /api/products/{id}` every few seconds while `lastCrawledAt` is still null, and shows a "crawling now" state with an elapsed-time progress bar (`CrawlProgressBar.tsx`) — see "Frontend behavior" below.
+1. `POST /api/products` validates the URL with `NoonUrl.TryParse` (https only, exactly `noon.com` / `www.noon.com`, product-page path shape — see [security-model.md](security-model.md)), and rebuilds the canonical URL from the parsed parts. A product already tracked — the same URL, or the same product code in the same market under another language's page — returns `409` with its id. New-product limits (per hour, and in total) return `429`. Otherwise it inserts a bare `Product` (URL and product code only); if two people submit the same link at the same instant, the unique index on `Url` picks the winner and the loser gets the same `409` a sequential submission would.
+2. It then asks `JobRequestService` for a crawl: a `ProductCrawlRequest` (`Pending`) is inserted — at most one active per product — and a `repository_dispatch` event (`crawl-product`) is fired. **The product is saved either way.** If the dispatch fails, or the hourly dispatch budget is spent, the request is recorded as `Failed` (stage `dispatch` / `budget`) and the `201` still comes back, with a `crawl` block saying so; the daily crawl will cover the product.
+3. The `201 Created` returns immediately with the bare record and the `crawl` status.
+4. GitHub Actions runs [`crawl-product.yml`](../../.github/workflows/crawl-product.yml), which invokes `NoonScraper.Crawler crawl-product <requestId>`. The job claims the request, scrapes the product's detail page (`ProductPageScraper`, JSON-LD based), records the reading through `ProductRecorder`, and completes the request — or fails it with a stage and a public-safe message.
+5. The frontend's product page polls `GET /api/products/{id}` while `lastCrawledAt` is null *and the crawl hasn't failed*; the response's `crawl` field says `Pending` / `Running` / `Failed`, and a failure shows its reason, the stage, and a link to the workflow run. See "Frontend behavior" below.
 
-The dispatch call is wrapped in a `try`/`catch` that only logs a warning on failure — a GitHub API hiccup shouldn't turn a successful `POST` into a failed one, and the next scheduled daily crawl is still a fallback if the dispatch never lands (see "What happens if the dispatch fails" below).
+## `ProductRecorder`: sharing the actual recording logic
 
-## `ProductUpserter`: sharing the actual upsert logic
-
-The daily crawl, the re-crawl of existing user-added products, and this one-off crawl all need to do the same thing with a scraped page: find-or-create the `Product` row, write a new `PriceSnapshot`, run restock/fake-discount detection, and notify Telegram subscribers. That logic used to be a local function inside the daily crawl's `Program.cs` — it's now `ProductUpserter.UpsertAsync`, a static method all three call sites share, so this feature didn't need to duplicate (and risk drifting from) the existing detection/notification logic.
+The daily crawl, the re-crawl of user-added products, and this one-off crawl all do the same thing with a scraped page: find-or-create the `Product`, append a `PriceSnapshot`, run restock / fake-discount detection, notify Telegram subscribers. That is `ProductRecorder.RecordAsync` — it replaced the static `ProductUpserter`, which had no protection against two crawls of one product overlapping. It now runs each reading in one transaction behind a per-product advisory lock and sends notifications only after the commit; see [architecture.md](architecture.md).
 
 ## What happens if the dispatch fails
 
-Two independent safety nets, not one:
-
-- The `try`/`catch` around the dispatch call in `CreateProduct` means a GitHub API failure (rate limit, transient error, a misconfigured `GITHUB_DISPATCH_TOKEN`) doesn't fail the `POST` itself — the product is still saved and still trackable, just not filled in yet.
-- Even if the dispatch silently never fires, the product is still a `UserAdded`, `IsActive` row, which the daily crawl already re-scrapes every run regardless of age (see `scheduled-crawl.md`) — so worst case, it catches up within 24 hours exactly like before this feature existed.
+- A transient failure (network, 5xx, rate limiting) is retried up to three times with a short backoff before giving up.
+- If it still fails, the request is closed as `Failed` at stage `dispatch`, the response says the crawl wasn't started, and the product is saved regardless.
+- Even then the product is a `UserAdded`, `IsActive` row, which the daily crawl re-scrapes every run (see `scheduled-crawl.md`), so the worst case is that it catches up within 24 hours, as before this feature existed.
 
 ## A stale-deployment gotcha this feature actually ran into
 
@@ -30,7 +28,7 @@ See engineering log #14 — the first real test of this feature through the live
 
 ## Frontend behavior
 
-`ProductDetailPage` polls every 4 seconds (capped at 5 minutes) while `lastCrawledAt` is null, and shows `CrawlProgressBar` — an elapsed-time estimate against a typical run (not a real step tracker; nothing reports actual progress from inside the GitHub Actions job), capped short of 100% until the crawl actually reports back. `AddProductForm` navigates straight to the new product's own page on submit, rather than leaving the user on the list page where a freshly-added, not-yet-crawled product would otherwise sort to the bottom under the default "last crawled" sort.
+`ProductDetailPage` polls every 4 seconds (capped at 5 minutes) while `lastCrawledAt` is null and the crawl request hasn't failed, and shows `CrawlProgressBar` — an elapsed-time estimate against a typical run (not a real step tracker; nothing reports actual progress from inside the GitHub Actions job), capped short of 100% until the crawl actually reports back. `AddProductForm` navigates straight to the new product's own page on submit, rather than leaving the user on the list page where a freshly-added, not-yet-crawled product would otherwise sort to the bottom under the default "last crawled" sort.
 
 ## Verifying it end-to-end
 

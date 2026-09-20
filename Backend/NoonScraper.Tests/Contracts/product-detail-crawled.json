@@ -1,0 +1,17 @@
+{
+  "id": 1,
+  "url": "https://www.noon.com/egypt-en/galaxy-phone/N100/p/",
+  "noonProductId": "N100",
+  "name": "Galaxy Phone 128GB",
+  "category": "Mobiles",
+  "merchantName": "noon",
+  "rating": 4.5,
+  "source": "Seed",
+  "isActive": true,
+  "addedAt": "2026-08-21T10:00:00\u002B00:00",
+  "latestPrice": 1999,
+  "latestDiscountPercent": 20,
+  "latestStock": true,
+  "lastCrawledAt": "2026-09-19T10:00:00\u002B00:00",
+  "crawl": null
+}

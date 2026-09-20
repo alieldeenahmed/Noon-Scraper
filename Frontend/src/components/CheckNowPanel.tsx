@@ -1,9 +1,16 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError, getCheckNowResult, startCheckNow } from '../api/client'
+import { isFinished } from '../api/types'
 import type { CheckNowResult } from '../api/types'
 import { formatPrice } from '../lib/format'
+import JobFailure from './JobFailure'
 
-const POLL_INTERVAL_MS = 3000
+export const POLL_INTERVAL_MS = 3000
+
+// The server closes a request that nothing picked up (see the API's StaleAfter),
+// so a poll always ends; this only stops a tab from polling forever if that
+// somehow doesn't happen.
+export const POLL_GIVE_UP_MS = 10 * 60 * 1000
 
 export default function CheckNowPanel({ productId }: { productId: number }) {
   const [result, setResult] = useState<CheckNowResult | null>(null)
@@ -18,7 +25,12 @@ export default function CheckNowPanel({ productId }: { productId: number }) {
     }
   }
 
+  // Leaving the page mid-check must not leave a timer polling (and setting state
+  // on) a component that's gone.
+  useEffect(() => stopPolling, [])
+
   async function handleCheckNow() {
+    if (running) return
     setRunning(true)
     setResult(null)
     setError(null)
@@ -26,12 +38,20 @@ export default function CheckNowPanel({ productId }: { productId: number }) {
 
     try {
       const { requestId } = await startCheckNow(productId)
+      const startedAt = Date.now()
 
       pollRef.current = setInterval(async () => {
+        if (Date.now() - startedAt > POLL_GIVE_UP_MS) {
+          stopPolling()
+          setRunning(false)
+          setError('this is taking much longer than expected — try again in a bit')
+          return
+        }
+
         try {
           const current = await getCheckNowResult(productId, requestId)
           setResult(current)
-          if (current.status !== 'Pending') {
+          if (isFinished(current.status)) {
             stopPolling()
             setRunning(false)
           }
@@ -46,7 +66,9 @@ export default function CheckNowPanel({ productId }: { productId: number }) {
       setError(
         err instanceof ApiError && err.status === 429
           ? 'too many checks — wait a minute and try again'
-          : 'couldn’t start the check',
+          : err instanceof ApiError && err.status === 502
+            ? 'couldn’t start the live check right now — try again shortly'
+            : 'couldn’t start the check',
       )
     }
   }
@@ -67,22 +89,37 @@ export default function CheckNowPanel({ productId }: { productId: number }) {
         </button>
       </div>
 
-      {error && <p className="mt-3 text-sm text-flag-red">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-3 text-sm text-flag-red">
+          {error}
+        </p>
+      )}
 
       {running && !result && !error && (
         <p className="mt-3 text-sm text-ink-600">kicking off a live scrape — this can take a couple minutes.</p>
       )}
 
-      {result?.status === 'Pending' && <p className="mt-3 text-sm text-ink-600">still running…</p>}
+      {result?.status === 'Pending' && <p className="mt-3 text-sm text-ink-600">queued — waiting for a worker…</p>}
 
-      {result?.status === 'Failed' && <p className="mt-3 text-sm text-flag-red">check failed: {result.errorMessage}</p>}
+      {result?.status === 'Running' && <p className="mt-3 text-sm text-ink-600">running — reading the page…</p>}
+
+      {result?.status === 'Failed' && (
+        <div className="mt-3">
+          <JobFailure
+            prefix="check failed"
+            message={result.errorMessage}
+            stage={result.failureStage}
+            runUrl={result.runUrl}
+          />
+        </div>
+      )}
 
       {result?.status === 'Completed' && (
         <div className="mt-3 divide-y divide-dotted divide-ink-300 border-t border-dotted border-ink-300">
-          {result.offers?.length === 0 ? (
+          {!result.offers || result.offers.length === 0 ? (
             <p className="py-2 text-sm text-ink-600">no other sellers found.</p>
           ) : (
-            result.offers?.map((offer, i) => (
+            result.offers.map((offer, i) => (
               <div key={i} className="flex items-baseline justify-between py-2 text-sm">
                 <span>
                   {offer.merchantName}

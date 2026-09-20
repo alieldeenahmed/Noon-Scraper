@@ -22,9 +22,20 @@ Without this secret set, the workflow will run and fail at the crawl step with a
 
 The same `DATABASE` secret is also used by [`check-now.yml`](../../.github/workflows/check-now.yml), the on-demand counterpart to this workflow — see `check-now.md`.
 
+## What a failure does to the run
+
+The crawl isolates failures per item and reports honestly instead of exiting `0` whenever nothing crashed:
+
+- a failed category or product is caught, logged with its URL, counted, and the run continues; each product's reading commits on its own, so a crash loses at most the product in flight;
+- the run has a 15-minute time budget and stops *starting* work when it's spent, oldest-crawled user-added products first, recording how many it deferred;
+- the exit code is `0` when fewer than 20 % of attempted products failed and no category failed, `1` otherwise (the workflow goes red with an `::error` annotation), `130` if cancelled;
+- every run writes a `CrawlRuns` row (counts, summary, the GitHub run id), and a unique index allows only one `Running` row, so a second run started while one is active exits cleanly instead of crawling in parallel.
+
+Details and the reasoning are in [failure-model.md](failure-model.md).
+
 ## Schedule and manual runs
 
-The cron trigger (`0 3 * * *`, 03:00 UTC daily) is intentionally outside typical peak traffic hours for the site being crawled. The workflow also accepts `workflow_dispatch`, so it can be triggered manually from the Actions tab for testing without waiting for the schedule.
+The cron trigger (`0 3 * * *`, 03:00 UTC daily) is intentionally outside typical peak traffic hours for the site being crawled. The workflow also accepts `workflow_dispatch`, so it can be triggered manually from the Actions tab for testing without waiting for the schedule; a `concurrency` group makes a manual run wait for a running scheduled one rather than overlap it.
 
 ## Cost
 

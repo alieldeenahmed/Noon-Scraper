@@ -1,0 +1,26 @@
+{
+  "id": 3,
+  "url": "https://www.noon.com/egypt-en/broken-thing/N300/p/",
+  "noonProductId": "N300",
+  "name": null,
+  "category": null,
+  "merchantName": null,
+  "rating": null,
+  "source": "UserAdded",
+  "isActive": true,
+  "addedAt": "2026-09-20T10:00:00\u002B00:00",
+  "latestPrice": null,
+  "latestDiscountPercent": null,
+  "latestStock": null,
+  "lastCrawledAt": null,
+  "crawl": {
+    "requestId": 2,
+    "status": "Failed",
+    "failureStage": "scrape",
+    "errorMessage": "The page had no product data (it may have been blocked).",
+    "requestedAt": "2026-09-20T10:00:00\u002B00:00",
+    "startedAt": "2026-09-20T10:00:20\u002B00:00",
+    "completedAt": "2026-09-20T10:00:45\u002B00:00",
+    "runUrl": "https://github.com/alieldeenahmed/Noon-Scraper/actions/runs/123456789"
+  }
+}

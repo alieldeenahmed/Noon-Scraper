@@ -13,11 +13,11 @@ Set these under the container's **Environment Variables** (runtime, not build-ti
 | Key | Value |
 |---|---|
 | `DATABASE` | The Neon connection string, in Npgsql's key-value format: `Host=...;Database=...;Username=...;Password=...;SSL Mode=Require` — **not** Neon's raw `postgresql://...` URI (see `database-setup.md`'s connection-string gotcha). |
-| `GITHUB_DISPATCH_TOKEN` | The fine-grained GitHub PAT (`Actions: write`) used to trigger `check-now.yml` — see `check-now.md`. Without it, `check-now` returns a `502` ("Failed to trigger the check"). |
+| `GITHUB_DISPATCH_TOKEN` | The fine-grained GitHub PAT (`Actions: write`) used to trigger `check-now.yml` — see `check-now.md`. Without it, submitting a product still saves it, but the crawl request is recorded as `Failed` at stage `dispatch` and `check-now` returns a `502`. |
 | `TELEGRAM_BOT_TOKEN` | Optional — see `telegram-notifications.md`. Without it, notifications are silently skipped. |
 | `TELEGRAM_WEBHOOK_SECRET` | Optional, same doc — only needed once the real Telegram webhook is registered. |
 
-All four are read under these flat names specifically because Back4app's environment-variable UI rejects the double-underscore/colon naming (`ConnectionStrings__DefaultConnection`, `GitHubDispatch:Token`, `Telegram:BotToken`) that .NET normally expects for nested config — see each service's own fallback (`Program.cs`, `GitHubDispatchService.cs`, `TelegramService.cs`).
+All four are read under these flat names specifically because Back4app's environment-variable UI rejects the double-underscore/colon naming (`ConnectionStrings__DefaultConnection`, `GitHubDispatch:Token`, `Telegram:BotToken`) that .NET normally expects for nested config — see each service's own fallback (`Program.cs`, `GitHubDispatchService.cs`, `SettingsExtensions`).
 
 **Every one of these has to be re-entered whenever the app gets recreated** (see the URL-stability gotcha below) — they don't carry over automatically except, apparently, `DATABASE`, which survived a recreation once for reasons I don't fully understand. Don't assume any of them are still set after a recreation; check.
 

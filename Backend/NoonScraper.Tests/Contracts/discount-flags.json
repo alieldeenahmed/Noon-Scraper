@@ -1,0 +1,10 @@
+[
+  {
+    "priorHighPrice": 2500,
+    "priorHighDetectedAt": "2026-09-10T10:00:00\u002B00:00",
+    "historicalLowPrice": 1800,
+    "discountedPrice": 1999,
+    "discountPercent": 20,
+    "detectedAt": "2026-09-19T10:00:00\u002B00:00"
+  }
+]

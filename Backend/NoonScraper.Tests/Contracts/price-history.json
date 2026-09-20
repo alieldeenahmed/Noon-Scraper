@@ -1,0 +1,14 @@
+[
+  {
+    "price": 2500,
+    "stock": true,
+    "discountPercent": null,
+    "crawledAt": "2026-09-10T10:00:00\u002B00:00"
+  },
+  {
+    "price": 1999,
+    "stock": true,
+    "discountPercent": 20,
+    "crawledAt": "2026-09-19T10:00:00\u002B00:00"
+  }
+]

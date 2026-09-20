@@ -16,6 +16,11 @@ public class DiscountFlag
 
     public required DateTimeOffset PriorHighDetectedAt { get; set; }
 
+    // The lowest price seen in the lookback window when this was flagged - the
+    // number the discounted price failed to beat. Null on rows from before this
+    // column existed.
+    public decimal? HistoricalLowPrice { get; set; }
+
     public required decimal DiscountedPrice { get; set; }
 
     public required decimal DiscountPercent { get; set; }

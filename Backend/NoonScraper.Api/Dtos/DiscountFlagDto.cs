@@ -6,6 +6,8 @@ public class DiscountFlagDto
 
     public required DateTimeOffset PriorHighDetectedAt { get; set; }
 
+    public decimal? HistoricalLowPrice { get; set; }
+
     public required decimal DiscountedPrice { get; set; }
 
     public required decimal DiscountPercent { get; set; }

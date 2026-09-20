@@ -31,4 +31,7 @@ public class ProductDetailDto
     public bool? LatestStock { get; set; }
 
     public DateTimeOffset? LastCrawledAt { get; set; }
+
+    // The most recent "crawl this now" request for the product, if any.
+    public CrawlStatusDto? Crawl { get; set; }
 }

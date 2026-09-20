@@ -9,8 +9,9 @@ public class RateLimitingTests
     private static Task<HttpResponseMessage> Submit(HttpClient client, int n) =>
         client.PostAsJsonAsync("/api/products", new CreateProductRequestDto { Url = $"https://www.noon.com/egypt-en/p{n}/N{n}/p/" });
 
-    private static Dictionary<string, string?> Limits(int global = 1000, int dispatch = 1000, int dispatchTotal = 1000) => new()
+    private static Dictionary<string, string?> Limits(int global = 1000, int dispatch = 1000, int dispatchTotal = 1000, int total = 100000) => new()
     {
+        ["RateLimiting:TotalPerMinute"] = total.ToString(),
         ["RateLimiting:GlobalPerMinute"] = global.ToString(),
         ["RateLimiting:DispatchPerMinute"] = dispatch.ToString(),
         ["RateLimiting:DispatchTotalPerMinute"] = dispatchTotal.ToString()
@@ -29,7 +30,7 @@ public class RateLimitingTests
         }
 
         Assert.Equal([HttpStatusCode.Created, HttpStatusCode.Created, HttpStatusCode.TooManyRequests], statuses);
-        Assert.Equal(2, factory.Dispatch.CrawledProductIds.Count);
+        Assert.Equal(2, factory.Dispatch.CrawledProductIds.Count());
     }
 
     [Fact]
@@ -136,5 +137,65 @@ public class RateLimitingTests
 
         Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
         Assert.Equal("http://localhost:5173", rejected.Headers.GetValues("Access-Control-Allow-Origin").Single());
+    }
+
+    // The per-IP limit is only as good as the IP, and a caller can invent one per
+    // request. The all-clients cap doesn't care what address is claimed.
+    [Fact]
+    public async Task The_all_clients_cap_holds_however_many_ips_are_claimed()
+    {
+        using var factory = new ApiFactory(Limits(total: 3));
+
+        var statuses = new List<HttpStatusCode>();
+        for (var i = 1; i <= 5; i++)
+        {
+            statuses.Add((await factory.CreateClientFrom($"10.9.9.{i}").GetAsync("/api/products")).StatusCode);
+        }
+
+        Assert.Equal(3, statuses.Count(s => s == HttpStatusCode.OK));
+        Assert.Equal(2, statuses.Count(s => s == HttpStatusCode.TooManyRequests));
+    }
+
+    [Fact]
+    public async Task Forged_or_garbage_forwarded_headers_do_not_break_requests()
+    {
+        using var factory = new ApiFactory(Limits());
+
+        foreach (var header in new[] { "not-an-ip", "999.999.999.999", "", "1.2.3.4, 5.6.7.8, junk", new string('9', 500) })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "/api/products");
+            request.Headers.TryAddWithoutValidation("X-Forwarded-For", header);
+
+            var response = await factory.CreateClient().SendAsync(request);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+    }
+
+    // Rate limiting is an in-memory optimization for noisy clients. What actually
+    // protects GitHub Actions is the database-backed budget - so a restart, which
+    // wipes the limiter, must not reset it.
+    [Fact]
+    public async Task The_dispatch_budget_survives_the_in_memory_limiter_being_reset()
+    {
+        var settings = Limits(dispatch: 1000);
+        settings["Jobs:MaxDispatchesPerHour"] = "1";
+
+        using var first = new ApiFactory(settings);
+        var created = await Submit(first.CreateClientFrom("10.0.0.1"), 1);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        Assert.Single(first.Dispatch.Dispatched);
+
+        // A "restart": a brand-new app instance, so a fresh limiter with no memory of
+        // the request above, serving the same database.
+        using var restarted = new ApiFactory(settings, sharedConnectionString: first.ConnectionString);
+        var afterRestart = await Submit(restarted.CreateClientFrom("10.0.0.1"), 2);
+
+        // The product is still accepted, but its crawl was not dispatched: the budget
+        // (one dispatch this hour) was already spent, and the database remembers.
+        var product = await afterRestart.Content.ReadFromJsonAsync<ProductDetailDto>(Json.Options);
+        Assert.Equal(HttpStatusCode.Created, afterRestart.StatusCode);
+        Assert.Empty(restarted.Dispatch.Dispatched);
+        Assert.Equal("budget", product!.Crawl!.FailureStage);
     }
 }

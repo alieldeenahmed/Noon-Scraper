@@ -1,27 +1,30 @@
-// Mirrors the backend's DTOs (Backend/NoonScraper.Api/Dtos) field-for-field.
-// ASP.NET Core serializes to camelCase and enums as strings by default -
-// see Program.cs's JsonStringEnumConverter - so these line up directly with
-// what the API actually returns, no mapping layer needed.
+import type { z } from 'zod'
+import type {
+  categorySchema,
+  checkNowAcceptedSchema,
+  checkNowResultSchema,
+  crawlStatusSchema,
+  discountFlagSchema,
+  jobStatusSchema,
+  offerSchema,
+  priceSnapshotSchema,
+  productDetailSchema,
+  productListItemSchema,
+  productSourceSchema,
+  productStatsSchema,
+  restockEventSchema,
+} from './schemas'
 
-export type Category = 'Mobiles' | 'Laptops' | 'SkinCare' | 'HairCare' | 'PersonalCare'
+// Inferred from the runtime schemas in schemas.ts - the one place the API
+// contract is written down. See the note there.
 
-export type ProductSource = 'Seed' | 'UserAdded'
+export type Category = z.infer<typeof categorySchema>
 
-export type CheckNowStatus = 'Pending' | 'Completed' | 'Failed'
+export type ProductSource = z.infer<typeof productSourceSchema>
 
-export interface ProductListItem {
-  id: number
-  url: string
-  name: string | null
-  category: Category | null
-  merchantName: string | null
-  rating: number | null
-  isActive: boolean
-  latestPrice: number | null
-  latestDiscountPercent: number | null
-  latestStock: boolean | null
-  lastCrawledAt: string | null
-}
+export type JobStatus = z.infer<typeof jobStatusSchema>
+
+export type ProductListItem = z.infer<typeof productListItemSchema>
 
 export interface PagedResult<T> {
   items: T[]
@@ -31,68 +34,29 @@ export interface PagedResult<T> {
   totalPages: number
 }
 
-export interface ProductStats {
-  total: number
-  inStock: number
-  onDiscount: number
-}
+export type ProductStats = z.infer<typeof productStatsSchema>
 
 export type ProductSortKey = 'crawled' | 'price' | 'discount'
 
 export type SortDirection = 'asc' | 'desc'
 
-export interface ProductDetail {
-  id: number
-  url: string
-  noonProductId: string | null
-  name: string | null
-  category: Category | null
-  merchantName: string | null
-  rating: number | null
-  source: ProductSource
-  isActive: boolean
-  addedAt: string
-  latestPrice: number | null
-  latestDiscountPercent: number | null
-  latestStock: boolean | null
-  lastCrawledAt: string | null
-}
+export type CrawlStatus = z.infer<typeof crawlStatusSchema>
 
-export interface PriceSnapshot {
-  price: number
-  stock: boolean
-  discountPercent: number | null
-  crawledAt: string
-}
+export type ProductDetail = z.infer<typeof productDetailSchema>
 
-export interface DiscountFlag {
-  priorHighPrice: number
-  priorHighDetectedAt: string
-  discountedPrice: number
-  discountPercent: number
-  detectedAt: string
-}
+export type PriceSnapshot = z.infer<typeof priceSnapshotSchema>
 
-export interface RestockEvent {
-  detectedAt: string
-}
+export type DiscountFlag = z.infer<typeof discountFlagSchema>
 
-export interface Offer {
-  merchantName: string
-  price: number
-  rating: number | null
-}
+export type RestockEvent = z.infer<typeof restockEventSchema>
 
-export interface CheckNowAccepted {
-  requestId: number
-  status: CheckNowStatus
-}
+export type Offer = z.infer<typeof offerSchema>
 
-export interface CheckNowResult {
-  requestId: number
-  status: CheckNowStatus
-  lowestPrice: number | null
-  lowestPriceMerchant: string | null
-  offers: Offer[] | null
-  errorMessage: string | null
+export type CheckNowAccepted = z.infer<typeof checkNowAcceptedSchema>
+
+export type CheckNowResult = z.infer<typeof checkNowResultSchema>
+
+// A job that has stopped changing: nothing more to poll for.
+export function isFinished(status: JobStatus): boolean {
+  return status === 'Completed' || status === 'Failed'
 }

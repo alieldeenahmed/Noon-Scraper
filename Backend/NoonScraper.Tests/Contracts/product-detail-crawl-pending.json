@@ -1,0 +1,26 @@
+{
+  "id": 2,
+  "url": "https://www.noon.com/egypt-en/new-thing/N200/p/",
+  "noonProductId": "N200",
+  "name": null,
+  "category": null,
+  "merchantName": null,
+  "rating": null,
+  "source": "UserAdded",
+  "isActive": true,
+  "addedAt": "2026-09-20T10:00:00\u002B00:00",
+  "latestPrice": null,
+  "latestDiscountPercent": null,
+  "latestStock": null,
+  "lastCrawledAt": null,
+  "crawl": {
+    "requestId": 1,
+    "status": "Pending",
+    "failureStage": null,
+    "errorMessage": null,
+    "requestedAt": "2026-09-20T10:00:00\u002B00:00",
+    "startedAt": null,
+    "completedAt": null,
+    "runUrl": null
+  }
+}

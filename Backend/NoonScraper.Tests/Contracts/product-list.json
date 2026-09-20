@@ -1,0 +1,47 @@
+{
+  "items": [
+    {
+      "id": 1,
+      "url": "https://www.noon.com/egypt-en/galaxy-phone/N100/p/",
+      "name": "Galaxy Phone 128GB",
+      "category": "Mobiles",
+      "merchantName": "noon",
+      "rating": 4.5,
+      "isActive": true,
+      "latestPrice": 1999,
+      "latestDiscountPercent": 20,
+      "latestStock": true,
+      "lastCrawledAt": "2026-09-19T10:00:00\u002B00:00"
+    },
+    {
+      "id": 3,
+      "url": "https://www.noon.com/egypt-en/broken-thing/N300/p/",
+      "name": null,
+      "category": null,
+      "merchantName": null,
+      "rating": null,
+      "isActive": true,
+      "latestPrice": null,
+      "latestDiscountPercent": null,
+      "latestStock": null,
+      "lastCrawledAt": null
+    },
+    {
+      "id": 2,
+      "url": "https://www.noon.com/egypt-en/new-thing/N200/p/",
+      "name": null,
+      "category": null,
+      "merchantName": null,
+      "rating": null,
+      "isActive": true,
+      "latestPrice": null,
+      "latestDiscountPercent": null,
+      "latestStock": null,
+      "lastCrawledAt": null
+    }
+  ],
+  "total": 3,
+  "page": 1,
+  "pageSize": 25,
+  "totalPages": 1
+}

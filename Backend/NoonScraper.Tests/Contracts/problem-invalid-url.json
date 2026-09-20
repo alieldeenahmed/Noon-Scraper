@@ -1,0 +1,6 @@
+{
+  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+  "title": "Invalid product URL",
+  "status": 400,
+  "detail": "Only https:// links are accepted."
+}

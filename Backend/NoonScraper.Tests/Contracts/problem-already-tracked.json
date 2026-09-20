@@ -1,0 +1,6 @@
+{
+  "title": "Already tracked",
+  "status": 409,
+  "detail": "This product is already tracked.",
+  "productId": 1
+}

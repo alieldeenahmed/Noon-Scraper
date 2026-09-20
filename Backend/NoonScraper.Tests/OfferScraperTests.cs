@@ -3,10 +3,9 @@ using NoonScraper.Crawler;
 
 namespace NoonScraper.Tests;
 
-// Cross-merchant offers. OfferScraper deliberately waits for the page to hydrate
-// (network idle plus a fixed 5 seconds) before looking for the "other sellers"
-// trigger, so every test here costs at least that long - hence the split into
-// two classes, which xUnit runs in parallel.
+// Cross-merchant offers. In production OfferScraper waits for the page to hydrate
+// (network idle plus 5 seconds) before looking for the "other sellers" trigger;
+// these tests pass a zero settle delay, since the fixture page is complete on load.
 
 // Products with a panel of competing sellers.
 [Trait("Category", "Browser")]
@@ -24,7 +23,7 @@ public class OfferScraperPanelTests(BrowserFixture browser) : IClassFixture<Brow
     {
         var page = await browser.PageServingAsync(Fixtures.OffersPage(Fixtures.Read("offer-cards.html"), Anker()));
 
-        var offers = await OfferScraper.ScrapeOffersAsync(page, Fixtures.ProductUrl);
+        var offers = await OfferScraper.ScrapeOffersAsync(page, Fixtures.ProductUrl, TimeSpan.Zero, TimeSpan.FromSeconds(2));
 
         Assert.Equal(
             [
@@ -39,12 +38,28 @@ public class OfferScraperPanelTests(BrowserFixture browser) : IClassFixture<Brow
     }
 
     [Fact]
+    public async Task A_card_missing_its_seller_or_with_an_unreadable_price_is_skipped_not_fatal()
+    {
+        var cards = Fixtures.Read("offer-cards.html");
+        var noSeller = "<a href=\"/x\"><div class=\"_sellingPrice_x\"><strong>500</strong></div></a>";
+        var badPrice = "<a href=\"/y\"><div class=\"_sellerName_x\">Ghost Seller</div><div class=\"_sellingPrice_x\"><strong>call us</strong></div></a>";
+        var page = await browser.PageServingAsync(Fixtures.OffersPage(noSeller + badPrice + cards, Anker()));
+
+        var offers = await OfferScraper.ScrapeOffersAsync(page, Fixtures.ProductUrl, TimeSpan.Zero, TimeSpan.FromSeconds(2));
+
+        // The noSeller card doesn't match the card selector at all; the bad-price
+        // card matches but is dropped. All six real ones survive.
+        Assert.Equal(6, offers.Count);
+        Assert.DoesNotContain(offers, o => o.MerchantName == "Ghost Seller");
+    }
+
+    [Fact]
     public async Task Falls_back_to_the_default_offer_when_the_panel_never_renders_any_cards()
     {
         // Trigger is there, but clicking it produces no seller cards.
         var page = await browser.PageServingAsync(Fixtures.OffersPage("", Anker()));
 
-        var offers = await OfferScraper.ScrapeOffersAsync(page, Fixtures.ProductUrl);
+        var offers = await OfferScraper.ScrapeOffersAsync(page, Fixtures.ProductUrl, TimeSpan.Zero, TimeSpan.FromSeconds(2));
 
         var offer = Assert.Single(offers);
         Assert.Equal("Wi-Tech", offer.MerchantName);
@@ -61,7 +76,7 @@ public class OfferScraperFallbackTests(BrowserFixture browser) : IClassFixture<B
     private async Task<List<OfferResult>> ScrapeAsync(string html)
     {
         var page = await browser.PageServingAsync(html);
-        return await OfferScraper.ScrapeOffersAsync(page, Fixtures.ProductUrl);
+        return await OfferScraper.ScrapeOffersAsync(page, Fixtures.ProductUrl, TimeSpan.Zero, TimeSpan.FromSeconds(2));
     }
 
     [Fact]
@@ -106,5 +121,38 @@ public class OfferScraperFallbackTests(BrowserFixture browser) : IClassFixture<B
         var offers = await ScrapeAsync(Fixtures.ProductPageRaw(Fixtures.Read("breadcrumb.jsonld.json")));
 
         Assert.Empty(offers);
+    }
+
+    [Fact]
+    public async Task A_page_that_never_hydrates_its_price_still_yields_the_structured_offer()
+    {
+        // No price element to wait for (an unavailable product, say) - the wait
+        // times out and the scraper reads what the JSON-LD says regardless.
+        var html = Fixtures.Page($"<script type=\"application/ld+json\">{Anker().ToJsonString()}</script>");
+
+        var offer = Assert.Single(await ScrapeAsync(html));
+
+        Assert.Equal(874m, offer.Price);
+    }
+
+    [Fact]
+    public async Task A_price_of_zero_in_the_structured_data_is_an_error_not_an_offer()
+    {
+        var json = Anker();
+        json["offers"]!["price"] = 0;
+
+        await Assert.ThrowsAsync<ScrapeParseException>(() => ScrapeAsync(Fixtures.ProductPage(json)));
+    }
+
+    [Fact]
+    public async Task An_http_error_page_is_reported_as_such()
+    {
+        var page = await browser.PageServingAsync("<h1>gone</h1>", 404);
+
+        var ex = await Assert.ThrowsAsync<ScrapeNavigationException>(() =>
+            OfferScraper.ScrapeOffersAsync(page, Fixtures.ProductUrl, TimeSpan.Zero, TimeSpan.FromSeconds(1)));
+
+        Assert.Equal(404, ex.Status);
+        Assert.False(ex.IsTransient);
     }
 }

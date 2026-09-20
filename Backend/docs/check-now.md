@@ -6,11 +6,13 @@ The obvious design for `POST /api/products/{id}/check-now` is to launch Chrome r
 
 ## The flow
 
-1. `POST /api/products/{id}/check-now` creates a `CheckNowRequest` row (`Status = Pending`) and fires a `repository_dispatch` event to GitHub (`GitHubDispatchService`, using a fine-grained PAT with `Actions: write` scope, stored in the API's own configuration — never committed).
-2. That immediately returns `202 Accepted` with the new request's id — there's nothing to scrape yet, so there's nothing to return synchronously.
-3. GitHub Actions receives the dispatch and runs [`check-now.yml`](../../.github/workflows/check-now.yml) — the same Ubuntu 24.04 + Chrome + Playwright-deps setup as the daily crawl, just triggered by an event instead of a cron schedule.
-4. The workflow runs `NoonScraper.Crawler check-now <requestId>`, which loads that specific `CheckNowRequest`, scrapes the product's page (`OfferScraper`, same stealth `StealthBrowser` setup the daily crawl uses), and writes the result back: `Status = Completed` with `ResultJson` holding every seller's offer, or `Status = Failed` with `ErrorMessage` if the scrape didn't find anything.
-5. The client polls `GET /api/products/{id}/check-now/{requestId}` until `Status` stops being `Pending`.
+1. `POST /api/products/{id}/check-now` goes through `JobRequestService`: expire anything stale, and if the product already has an active check, **return that one** (so a double-click or a client retry doesn't start a second workflow run). Otherwise it inserts a `CheckNowRequest` (`Pending`, with a fresh correlation id) — a partial unique index guarantees one active check per product even if two requests race — and dispatches a `repository_dispatch` event to GitHub (`GitHubDispatchService`, a fine-grained PAT with `Actions: write`, stored in the API's own configuration, never committed). The payload carries the request id, product id and correlation id.
+2. It returns `202 Accepted` with the request id. If the hourly dispatch budget is spent it returns `429` with `Retry-After`; if GitHub can't be reached after retries it returns `502` and the request is closed as `Failed` at stage `dispatch` instead of being left `Pending` for a worker that will never come.
+3. GitHub Actions runs [`check-now.yml`](../../.github/workflows/check-now.yml) — the same Ubuntu 24.04 + Chrome + Playwright-deps setup as the daily crawl. The run's name contains the request id, product id and correlation id.
+4. The workflow runs `NoonScraper.Crawler check-now <requestId>`. The job **claims** the request with one conditional `UPDATE ... WHERE Status = Pending` (a duplicate delivery claims nothing and exits), scrapes the product's page (`OfferScraper`, via an `IScrapeSession`), and completes it: `Completed` with `ResultJson` holding every seller's offer, or `Failed` with the stage it failed in and a message that is safe to show publicly. If the workflow dies before the crawler runs, a final `if: failure() || cancelled()` step closes the request (`fail-request`).
+5. The client polls `GET /api/products/{id}/check-now/{requestId}` (looked up by *both* ids) until the status is `Completed` or `Failed`. Statuses are `Pending → Running → Completed | Failed`; a request nobody finishes within 15 minutes reads as `Failed` at stage `timeout`. The response includes the failure stage and a link to the GitHub run that handled it.
+
+The full state machine, retries and stages are in [failure-model.md](failure-model.md).
 
 ## Why `OfferScraper`/`OfferResult`/`StealthBrowser` live in `NoonScraper.Crawler`, not `NoonScraper.Api`
 

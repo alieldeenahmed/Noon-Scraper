@@ -1,0 +1,24 @@
+{
+  "requestId": 1,
+  "status": "Completed",
+  "lowestPrice": 1850,
+  "lowestPriceMerchant": "Seller A",
+  "offers": [
+    {
+      "merchantName": "Seller A",
+      "price": 1850,
+      "rating": 4.7
+    },
+    {
+      "merchantName": "Seller B",
+      "price": 1990,
+      "rating": null
+    }
+  ],
+  "errorMessage": null,
+  "failureStage": null,
+  "requestedAt": "2026-09-20T10:00:00\u002B00:00",
+  "startedAt": "2026-09-20T10:00:15\u002B00:00",
+  "completedAt": "2026-09-20T10:00:50\u002B00:00",
+  "runUrl": "https://github.com/alieldeenahmed/Noon-Scraper/actions/runs/555"
+}

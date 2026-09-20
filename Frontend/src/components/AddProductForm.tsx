@@ -1,15 +1,37 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { ApiError, createProduct } from '../api/client'
+
+// What to tell the user for each way a submission can fail. The API's own 400
+// explanation (which says *what* was wrong with the link) is shown when it sent one.
+function describeFailure(err: unknown): { text: string; existingProductId?: number } {
+  if (err instanceof ApiError) {
+    if (err.status === 409) {
+      return { text: 'This product is already tracked.', existingProductId: err.productId }
+    }
+    if (err.status === 400) {
+      return { text: err.detail ?? 'That doesn’t look like a noon.com product URL.' }
+    }
+    if (err.status === 429) {
+      return { text: err.detail ?? 'Too many submissions — wait a minute and try again.' }
+    }
+    if (err.status === 0) {
+      return { text: 'Couldn’t reach the server. Check your connection and try again.' }
+    }
+  }
+  return { text: 'Something went wrong submitting that URL.' }
+}
 
 export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
   const navigate = useNavigate()
   const [url, setUrl] = useState('')
   const [status, setStatus] = useState<'idle' | 'submitting'>('idle')
-  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
+  const [message, setMessage] = useState<{ text: string; existingProductId?: number } | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // Enter in the field submits without going through the disabled button.
+    if (status === 'submitting') return
     setStatus('submitting')
     setMessage(null)
 
@@ -22,15 +44,7 @@ export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
       // wait on the list page for a bare, uncrawled row.
       navigate(`/products/${product.id}`)
     } catch (err) {
-      const text =
-        err instanceof ApiError && err.status === 409
-          ? 'This product is already tracked.'
-          : err instanceof ApiError && err.status === 400
-            ? 'That doesn’t look like a noon.com product URL.'
-            : err instanceof ApiError && err.status === 429
-              ? 'Too many submissions — wait a minute and try again.'
-              : 'Something went wrong submitting that URL.'
-      setMessage({ tone: 'error', text })
+      setMessage(describeFailure(err))
     } finally {
       setStatus('idle')
     }
@@ -60,8 +74,16 @@ export default function AddProductForm({ onAdded }: { onAdded: () => void }) {
         </button>
       </div>
       {message && (
-        <p className={`mt-2 text-sm ${message.tone === 'error' ? 'text-flag-red' : 'text-flag-green'}`}>
+        <p role="alert" className="mt-2 text-sm text-flag-red">
           {message.text}
+          {message.existingProductId !== undefined && (
+            <>
+              {' '}
+              <Link to={`/products/${message.existingProductId}`} className="underline">
+                View it
+              </Link>
+            </>
+          )}
         </p>
       )}
     </form>

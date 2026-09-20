@@ -10,6 +10,20 @@ on:
   repository_dispatch:
     types: [crawl-product]
 
+# What shows in the Actions list. With the request id, product id and correlation
+# id right in the run's name, "which run handled request 42?" is a search box away,
+# and the same ids are on every log line the crawler prints.
+run-name: Crawl product - request ${{ github.event.client_payload.requestId }}, product ${{ github.event.client_payload.productId }}, ${{ github.event.client_payload.correlationId }}
+
+# One run per product at a time. The API already allows only one active request per
+# product, so this is a second line of defence against a re-delivered dispatch.
+# Runs are never cancelled mid-flight (that would strand a half-done scrape); a run
+# still queued behind another is what would be replaced, and the request it
+# belonged to is closed by the API's stale-request expiry.
+concurrency:
+  group: crawl-product-${{ github.event.client_payload.productId }}
+  cancel-in-progress: false
+
 jobs:
   crawl:
     runs-on: ubuntu-24.04
@@ -61,10 +75,35 @@ jobs:
       - name: Install Playwright system dependencies
         run: dotnet run --configuration Release -- install-deps
 
-      - name: Run crawl-product
-        run: >
-          xvfb-run --auto-servernum
-          dotnet run --configuration Release -- crawl-product ${{ github.event.client_payload.productId }}
+      # The id comes in through the environment and is checked before use, rather than
+      # being spliced into the shell command, so a malformed dispatch payload can't
+      # become a command.
+      - name: Validate the request id
         env:
+          REQUEST_ID: ${{ github.event.client_payload.requestId }}
+        run: |
+          if ! [[ "$REQUEST_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error title=Bad dispatch payload::client_payload.requestId is missing or not a number"
+            exit 1
+          fi
+
+      - name: Run crawl-product
+        env:
+          REQUEST_ID: ${{ github.event.client_payload.requestId }}
           ConnectionStrings__DefaultConnection: ${{ secrets.DATABASE }}
           Telegram__BotToken: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: xvfb-run --auto-servernum dotnet run --configuration Release --no-build -- crawl-product "$REQUEST_ID"
+
+      # If the run died before the crawler could report (Chrome failed to install, the
+      # runner was cancelled, the build broke), the request would otherwise stay
+      # Pending until the API's stale-request expiry noticed. This closes it now.
+      # A request the crawler already closed is left alone.
+      - name: Close the request if the run failed
+        if: failure() || cancelled()
+        env:
+          REQUEST_ID: ${{ github.event.client_payload.requestId }}
+          ConnectionStrings__DefaultConnection: ${{ secrets.DATABASE }}
+        run: >
+          dotnet run --configuration Release --no-build --
+          fail-request crawl-product "$REQUEST_ID"
+          "The workflow run failed before the crawler reported a result."

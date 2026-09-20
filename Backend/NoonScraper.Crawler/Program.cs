@@ -1,23 +1,52 @@
-using System.Text.Json;
+using System.Runtime.InteropServices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using NoonScraper.Crawler;
+using NoonScraper.Crawler.Jobs;
 using NoonScraper.Data;
-using NoonScraper.Data.Models;
+using NoonScraper.Data.Configuration;
+using NoonScraper.Data.Notifications;
+
+// Usage:
+//   NoonScraper.Crawler                                    the scheduled crawl
+//   NoonScraper.Crawler crawl-product <requestId>          crawl one submitted product
+//   NoonScraper.Crawler check-now <requestId>              cross-merchant comparison
+//   NoonScraper.Crawler fail-request <kind> <id> [reason]  close a request whose workflow died
+//   NoonScraper.Crawler install | install-deps             Playwright's own installer
+//
+// Anything else is a usage error. (It used to fall through to a full crawl, which
+// made a mistyped flag - or `--help` - quietly start scraping the live site and
+// writing to the database.)
+const int UsageError = 64;
 
 // Passthrough to Playwright's own CLI (`install`/`install-deps`), since Linux
 // environments (this project's WSL dev setup, and the GitHub Actions runner)
-// have no PowerShell to run the generated playwright.ps1 script. Playwright.ps1
-// itself does nothing but load Microsoft.Playwright.dll and call this same
-// method, so calling it directly needs no extra tooling.
+// have no PowerShell to run the generated playwright.ps1 script.
 if (args.Length > 0 && (args[0] == "install" || args[0] == "install-deps"))
 {
-    Environment.Exit(Microsoft.Playwright.Program.Main(args));
+    return Microsoft.Playwright.Program.Main(args);
 }
 
-var builder = Host.CreateApplicationBuilder(args);
+var mode = args.FirstOrDefault();
+var validUsage = mode switch
+{
+    null => args.Length == 0,
+    "crawl-product" or "check-now" => args.Length == 2 && int.TryParse(args[1], out _),
+    "fail-request" => args.Length is 3 or 4 && int.TryParse(args[2], out _),
+    _ => false
+};
+
+if (!validUsage)
+{
+    Console.Error.WriteLine("Usage: NoonScraper.Crawler [crawl-product|check-now <requestId>] | [fail-request <kind> <id> [reason]]");
+    return UsageError;
+}
+
+var builder = Host.CreateApplicationBuilder([]);
 
 // Host.CreateApplicationBuilder only auto-loads user secrets when the environment
 // is "Development", and a bare console app has no launchSettings.json to set that -
@@ -26,191 +55,136 @@ var builder = Host.CreateApplicationBuilder(args);
 // which the default configuration sources already pick up.
 builder.Configuration.AddUserSecrets<Program>();
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Logging.ClearProviders();
+builder.Logging.AddSimpleConsole(o =>
+{
+    o.SingleLine = true;
+    o.IncludeScopes = true;
+    o.TimestampFormat = "HH:mm:ss ";
+});
 
-builder.Services.AddHttpClient();
+// Telegram's API puts the bot token in the URL path, and the HTTP client's own
+// logging prints request URLs. Actions masks registered secrets, but the token
+// shouldn't be in a log line at all.
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Warning);
+
+var connectionString = builder.Configuration.GetDatabaseConnectionString();
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)));
+
+builder.Services.Configure<CrawlOptions>(builder.Configuration.GetSection(CrawlOptions.SectionName));
+builder.Services.AddSingleton(TimeProvider.System);
+
+builder.Services.AddHttpClient("telegram", client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddScoped<ITelegramSender>(sp => new TelegramSender(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient("telegram"),
+    builder.Configuration.GetTelegramBotToken(),
+    sp.GetRequiredService<ILogger<TelegramSender>>()));
+
+builder.Services.AddSingleton<IScrapeSessionFactory, BrowserScrapeSessionFactory>();
+builder.Services.AddScoped<SubscriptionNotifier>();
+builder.Services.AddScoped<ProductRecorder>();
+builder.Services.AddScoped<DailyCrawl>();
+builder.Services.AddScoped<CrawlProductJob>();
+builder.Services.AddScoped<CheckNowJob>();
+
+using var cancellation = new CancellationTokenSource();
+
+// GitHub cancels a run (or hits its timeout) with SIGINT, then SIGTERM. Turning
+// that into a token lets the job record that it was cancelled instead of dying
+// with its request stuck in Running.
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;
+    cancellation.Cancel();
+};
+using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
+{
+    context.Cancel = true;
+    cancellation.Cancel();
+});
+
+var gitHubRunId = long.TryParse(Environment.GetEnvironmentVariable("GITHUB_RUN_ID"), out var parsedRunId)
+    ? parsedRunId
+    : (long?)null;
 
 using var host = builder.Build();
+await using var scope = host.Services.CreateAsyncScope();
+var services = scope.ServiceProvider;
+var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("NoonScraper.Crawler");
 
-// Invoked by the check-now.yml GitHub Actions workflow, triggered by the API
-// via a repository_dispatch event - the API can no longer launch Chrome itself,
-// so this is the one place that actually performs an on-demand check.
-if (args.Length > 0 && args[0] == "check-now")
+try
 {
-    var requestId = int.Parse(args[1]);
-
-    using var checkScope = host.Services.CreateScope();
-    var checkDb = checkScope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-    var request = await checkDb.CheckNowRequests
-        .Include(r => r.Product)
-        .FirstOrDefaultAsync(r => r.Id == requestId);
-
-    if (request is null)
+    switch (mode)
     {
-        Console.WriteLine($"CheckNowRequest {requestId} not found.");
-        Environment.Exit(1);
+        case "crawl-product":
+            return Report(
+                await services.GetRequiredService<CrawlProductJob>().RunAsync(int.Parse(args[1]), gitHubRunId, cancellation.Token),
+                "Product crawl");
+
+        case "check-now":
+            return Report(
+                await services.GetRequiredService<CheckNowJob>().RunAsync(int.Parse(args[1]), gitHubRunId, cancellation.Token),
+                "Cross-merchant check");
+
+        case "fail-request":
+            return await FailRequestAsync(services, args);
+
+        default:
+            var options = services.GetRequiredService<IOptions<CrawlOptions>>().Value;
+            var summary = await services.GetRequiredService<DailyCrawl>().RunAsync(gitHubRunId, cancellation.Token);
+            if (summary.SkippedBecauseAnotherRunIsActive)
+            {
+                return ExitCodes.Success;
+            }
+
+            var code = summary.ExitCode(options);
+            if (code == ExitCodes.Success && summary.ProductsFailed > 0)
+            {
+                Console.WriteLine($"::warning title=Daily crawl::{summary}");
+            }
+
+            return Report(code, "Daily crawl", summary.ToString());
     }
-
-    try
-    {
-        await using var checkBrowser = await StealthBrowser.LaunchAsync();
-        var offers = await OfferScraper.ScrapeOffersAsync(checkBrowser.Page, request!.Product!.Url);
-
-        if (offers.Count == 0)
-        {
-            throw new InvalidOperationException("No offers found on the product page.");
-        }
-
-        request.Status = CheckNowStatus.Completed;
-        request.ResultJson = JsonSerializer.Serialize(offers.OrderBy(o => o.Price));
-        Console.WriteLine($"Completed check-now for request {requestId}: {offers.Count} offer(s)");
-    }
-    catch (Exception ex)
-    {
-        request!.Status = CheckNowStatus.Failed;
-        request.ErrorMessage = ex.Message;
-        Console.WriteLine($"Failed check-now for request {requestId}: {ex.Message}");
-    }
-
-    request!.CompletedAt = DateTimeOffset.UtcNow;
-    await checkDb.SaveChangesAsync();
-    Environment.Exit(0);
+}
+catch (Exception ex)
+{
+    logger.LogCritical(ex, "Unhandled failure");
+    Console.WriteLine($"::error title=Crawler crashed::{ex.GetType().Name}: {ex.Message.Split('\n')[0]}");
+    return ExitCodes.Failure;
 }
 
-// Invoked by the crawl-product.yml workflow right after a user submits a URL
-// via POST /products - without this, a freshly-added product would just sit
-// as a bare record (no name, price, or stock) until the next scheduled daily
-// crawl reached it, up to 24 hours later.
-if (args.Length > 0 && args[0] == "crawl-product")
+// GitHub Actions turns "::error"/"::warning" lines into annotations on the run,
+// so a failure is visible on the run's summary page without opening the log.
+static int Report(int exitCode, string what, string? detail = null)
 {
-    var crawlProductId = int.Parse(args[1]);
-
-    using var crawlScope = host.Services.CreateScope();
-    var crawlDb = crawlScope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var crawlHttpClient = crawlScope.ServiceProvider.GetRequiredService<IHttpClientFactory>().CreateClient();
-    var crawlTelegramToken = builder.Configuration["Telegram:BotToken"] ?? builder.Configuration["TELEGRAM_BOT_TOKEN"];
-
-    var targetProduct = await crawlDb.Products.FindAsync(crawlProductId);
-    if (targetProduct is null)
+    if (exitCode == ExitCodes.Failure)
     {
-        Console.WriteLine($"Product {crawlProductId} not found.");
-        Environment.Exit(1);
+        Console.WriteLine($"::error title={what} failed::{detail ?? "see the log for the failing stage"}");
     }
 
-    try
-    {
-        await using var crawlBrowser = await StealthBrowser.LaunchAsync();
-        var scrapedProduct = await ProductPageScraper.ScrapeAsync(crawlBrowser.Page, targetProduct!.Url);
-
-        if (scrapedProduct is null)
-        {
-            throw new InvalidOperationException("No Product data found at that URL.");
-        }
-
-        await ProductUpserter.UpsertAsync(
-            crawlDb, crawlHttpClient, crawlTelegramToken, [], scrapedProduct, ProductSource.UserAdded, category: null);
-        await crawlDb.SaveChangesAsync();
-        Console.WriteLine($"Crawled product {crawlProductId}: {scrapedProduct.Name}");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Failed to crawl product {crawlProductId}: {ex.Message}");
-        Environment.Exit(1);
-    }
-
-    Environment.Exit(0);
+    return exitCode;
 }
 
-var categoryUrls = new (Category Category, string Url)[]
+// Closes a request whose workflow died before the crawler could (a failed Chrome
+// install, say). Only affects a request that is still Pending or Running.
+static async Task<int> FailRequestAsync(IServiceProvider services, string[] args)
 {
-    (Category.Mobiles, "https://www.noon.com/egypt-en/mobiles/"),
-    (Category.Laptops, "https://www.noon.com/egypt-en/electronics-and-mobiles/computers-and-accessories/computers-new/laptops/"),
-    (Category.SkinCare, "https://www.noon.com/egypt-en/eg-skin-care/"),
-    (Category.HairCare, "https://www.noon.com/egypt-en/eg-hair-care/"),
-    (Category.PersonalCare, "https://www.noon.com/egypt-en/eg-personal-care/")
-};
+    var db = services.GetRequiredService<AppDbContext>();
+    var clock = services.GetRequiredService<TimeProvider>();
+    var id = int.Parse(args[2]);
+    var reason = args.Length == 4 ? args[3] : "The workflow run failed before the crawler reported a result.";
 
-await using var stealthBrowser = await StealthBrowser.LaunchAsync();
-var page = stealthBrowser.Page;
-
-using var scope = host.Services.CreateScope();
-var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-var httpClient = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>().CreateClient();
-
-// Same flat-variable fallback as the connection string - Back4app's
-// environment-variable UI rejects "__" hierarchical naming, so wherever this
-// ends up configured outside local user secrets, it'll need a flat name.
-var telegramBotToken = builder.Configuration["Telegram:BotToken"] ?? builder.Configuration["TELEGRAM_BOT_TOKEN"];
-
-// Tracks products already added in this run, since the same product can appear
-// in multiple widgets on one page (e.g. both "Best sellers" and "Shop all mobiles"),
-// and neither would be found by a DB lookup until SaveChangesAsync actually runs.
-var productsInThisRun = new Dictionary<string, Product>();
-
-foreach (var (category, url) in categoryUrls)
-{
-    Console.WriteLine($"Scraping {category} at {url}");
-
-    List<ScrapedProduct> scraped;
-    try
+    var failed = args[1] switch
     {
-        scraped = await CategoryScraper.ScrapeAsync(page, url);
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"  Failed to scrape {category}: {ex.Message}");
-        continue;
-    }
+        "crawl-product" => await JobLifecycle.TryFailAsync(db.ProductCrawlRequests, id, "workflow", reason, clock.GetUtcNow()),
+        "check-now" => await JobLifecycle.TryFailAsync(db.CheckNowRequests, id, "workflow", reason, clock.GetUtcNow()),
+        _ => throw new ArgumentException($"Unknown request kind '{args[1]}'.")
+    };
 
-    Console.WriteLine($"  Found {scraped.Count} products");
-
-    foreach (var item in scraped)
-    {
-        // Skip products already handled in this run - the same product can appear
-        // in multiple widgets on one page, and a second snapshot from the same
-        // crawl would just be redundant, near-identical history.
-        if (productsInThisRun.ContainsKey(item.Url))
-        {
-            continue;
-        }
-
-        await ProductUpserter.UpsertAsync(db, httpClient, telegramBotToken, productsInThisRun, item, ProductSource.Seed, category);
-    }
-
-    await db.SaveChangesAsync();
+    Console.WriteLine(failed
+        ? $"Marked {args[1]} request {id} as failed."
+        : $"{args[1]} request {id} was already closed; nothing to do.");
+    return ExitCodes.Success;
 }
-
-// User-submitted products aren't covered by any of the 5 tracked category pages,
-// so they're kept up to date via their own detail page instead, every crawl.
-var userAddedProducts = await db.Products
-    .Where(p => p.Source == ProductSource.UserAdded && p.IsActive)
-    .ToListAsync();
-
-Console.WriteLine($"Scraping {userAddedProducts.Count} user-added product(s)");
-
-foreach (var product in userAddedProducts)
-{
-    ScrapedProduct? scraped;
-    try
-    {
-        scraped = await ProductPageScraper.ScrapeAsync(page, product.Url);
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"  Failed to scrape {product.Url}: {ex.Message}");
-        continue;
-    }
-
-    if (scraped is null)
-    {
-        Console.WriteLine($"  No Product data found at {product.Url}");
-        continue;
-    }
-
-    await ProductUpserter.UpsertAsync(db, httpClient, telegramBotToken, productsInThisRun, scraped, ProductSource.UserAdded, category: null);
-    await db.SaveChangesAsync();
-}
-
-Console.WriteLine("Done.");

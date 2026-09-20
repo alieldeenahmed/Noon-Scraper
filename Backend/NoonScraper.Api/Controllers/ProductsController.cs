@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using NoonScraper.Api.Dtos;
 using NoonScraper.Api.Services;
 using NoonScraper.Data;
@@ -11,9 +12,16 @@ namespace NoonScraper.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class ProductsController(AppDbContext db, GitHubDispatchService dispatchService, ILogger<ProductsController> logger) : ControllerBase
+public class ProductsController(
+    AppDbContext db,
+    JobRequestService jobs,
+    TimeProvider clock,
+    IOptions<JobOptions> jobOptions,
+    ILogger<ProductsController> logger) : ControllerBase
 {
     private const int MaxPageSize = 100;
+
+    private const int MaxSearchLength = 100;
 
     // Search, sort, and paging all happen in the database rather than over one
     // big client-side list - the response is one page of the matching rows plus
@@ -35,12 +43,12 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
         };
         if (descending is null)
         {
-            return BadRequest("sortDir must be 'asc' or 'desc'.");
+            return Problem(detail: "sortDir must be 'asc' or 'desc'.", statusCode: StatusCodes.Status400BadRequest);
         }
 
         if (sortBy.ToLowerInvariant() is not ("crawled" or "price" or "discount"))
         {
-            return BadRequest("sortBy must be 'crawled', 'price', or 'discount'.");
+            return Problem(detail: "sortBy must be 'crawled', 'price', or 'discount'.", statusCode: StatusCodes.Status400BadRequest);
         }
 
         page = Math.Max(page, 1);
@@ -55,7 +63,9 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLowerInvariant();
+            // Bounded: this becomes a substring match over every row.
+            var trimmed = search.Trim();
+            var term = (trimmed.Length > MaxSearchLength ? trimmed[..MaxSearchLength] : trimmed).ToLowerInvariant();
             rows = rows.Where(x => (x.Product.Name ?? x.Product.Url).ToLower().Contains(term));
         }
 
@@ -125,14 +135,19 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
         });
     }
 
+    // Only tracked (active) products. A submitted product whose page turned out not
+    // to exist is deactivated by its first crawl and stops appearing here.
     private IQueryable<ProductWithLatest> ProductsWithLatestSnapshot() =>
-        db.Products.Select(p => new ProductWithLatest
-        {
-            Product = p,
-            Latest = p.PriceSnapshots
-                .OrderByDescending(s => s.CrawledAt)
-                .FirstOrDefault()
-        });
+        db.Products
+            .Where(p => p.IsActive)
+            .Select(p => new ProductWithLatest
+            {
+                Product = p,
+                Latest = p.PriceSnapshots
+                    .OrderByDescending(s => s.CrawledAt)
+                    .ThenByDescending(s => s.Id)
+                    .FirstOrDefault()
+            });
 
     private sealed class ProductWithLatest
     {
@@ -142,7 +157,7 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
     }
 
     [HttpGet("{id:int}")]
-    public async Task<ActionResult<ProductDetailDto>> GetProduct(int id)
+    public async Task<ActionResult<ProductDetailDto>> GetProduct(int id, CancellationToken ct)
     {
         var product = await db.Products
             .Where(p => p.Id == id)
@@ -151,6 +166,7 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
                 Product = p,
                 Latest = p.PriceSnapshots
                     .OrderByDescending(s => s.CrawledAt)
+                    .ThenByDescending(s => s.Id)
                     .FirstOrDefault()
             })
             .Select(x => new ProductDetailDto
@@ -170,64 +186,86 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
                 LatestStock = x.Latest != null ? x.Latest.Stock : null,
                 LastCrawledAt = x.Latest != null ? x.Latest.CrawledAt : null
             })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(ct);
 
         if (product is null)
         {
             return NotFound();
         }
 
+        var latestCrawl = await db.ProductCrawlRequests
+            .AsNoTracking()
+            .Where(r => r.ProductId == id)
+            .OrderByDescending(r => r.RequestedAt)
+            .ThenByDescending(r => r.Id)
+            .FirstOrDefaultAsync(ct);
+
+        product.Crawl = latestCrawl is null ? null : ToCrawlStatus(latestCrawl);
+
         return Ok(product);
     }
 
-    // Rate-limited more tightly than the read endpoints: every accepted
-    // request here fires a GitHub Actions dispatch, which is metered.
     [HttpPost]
     [EnableRateLimiting(RateLimitPolicies.Dispatch)]
-    public async Task<ActionResult<ProductDetailDto>> CreateProduct(CreateProductRequestDto request)
+    public async Task<ActionResult<ProductDetailDto>> CreateProduct(CreateProductRequestDto request, CancellationToken ct)
     {
-        // "noon.com" itself or a real subdomain - a bare EndsWith("noon.com")
-        // would also accept lookalike hosts such as "evilnoon.com".
-        if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||
-            !(uri.Host.Equals("noon.com", StringComparison.OrdinalIgnoreCase) ||
-              uri.Host.EndsWith(".noon.com", StringComparison.OrdinalIgnoreCase)))
+        // Strict, shared validation - see NoonUrl. Everything past this point works
+        // with the canonical URL it builds, never the string the caller sent.
+        if (!NoonUrl.TryParse(request.Url, out var noonUrl, out var error))
         {
-            return BadRequest("Url must be an absolute noon.com product URL.");
+            return Problem(title: "Invalid product URL", detail: error, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        // Strips Noon's per-session tracking query string, so the same product
-        // submitted twice (with a different tracking token) is recognized as
-        // already tracked instead of creating a duplicate.
-        var normalizedUrl = UrlNormalizer.Normalize(request.Url);
-
-        var alreadyTracked = await db.Products.AnyAsync(p => p.Url == normalizedUrl);
-        if (alreadyTracked)
+        var existingId = await FindExistingProductIdAsync(noonUrl, ct);
+        if (existingId is not null)
         {
-            return Conflict("This product is already tracked.");
+            return AlreadyTracked(existingId.Value);
         }
 
-        // Only the URL is known until the next crawl fills in the rest.
+        switch (await jobs.CheckProductLimitsAsync(ct))
+        {
+            case ProductLimit.HourlyRate:
+                Response.Headers.RetryAfter = "3600";
+                return Problem(
+                    title: "Too many new products",
+                    detail: "New products are being added too quickly right now. Try again later.",
+                    statusCode: StatusCodes.Status429TooManyRequests);
+
+            case ProductLimit.TotalCap:
+                return Problem(
+                    title: "Tracking limit reached",
+                    detail: "This site is tracking as many user-added products as it supports.",
+                    statusCode: StatusCodes.Status429TooManyRequests);
+        }
+
+        // Only the URL is known until the crawl fills in the rest.
         var product = new Product
         {
-            Url = normalizedUrl,
+            Url = noonUrl.Canonical,
+            NoonProductId = noonUrl.Sku,
             Source = ProductSource.UserAdded,
             IsActive = true
         };
 
         db.Products.Add(product);
-        await db.SaveChangesAsync();
-
-        // Best-effort - the product is already saved either way, and the
-        // next scheduled daily crawl is a fallback if this dispatch fails,
-        // so a GitHub API hiccup here shouldn't turn into a failed 201.
         try
         {
-            await dispatchService.TriggerCrawlProductAsync(product.Id);
+            await db.SaveChangesAsync(ct);
         }
-        catch (Exception ex)
+        catch (DbUpdateException ex) when (DatabaseErrors.IsUniqueViolation(ex, "IX_Products_Url"))
         {
-            logger.LogWarning(ex, "Failed to dispatch an immediate crawl for product {ProductId}", product.Id);
+            // The check above and the insert aren't atomic; the unique index is what
+            // actually guarantees one row per URL, so a concurrent submission of the
+            // same product lands here and gets the same answer as a sequential one.
+            db.Entry(product).State = EntityState.Detached;
+            var winnerId = await db.Products.Where(p => p.Url == noonUrl.Canonical).Select(p => p.Id).FirstAsync(ct);
+            return AlreadyTracked(winnerId);
         }
+
+        // The product is saved either way. If the crawl can't be started (dispatch
+        // failed, budget spent) that's recorded on its request, the response says
+        // so, and the scheduled crawl still covers it.
+        var outcome = await jobs.RequestCrawlAsync(product.Id, ct);
 
         var dto = new ProductDetailDto
         {
@@ -240,11 +278,34 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
             Rating = product.Rating,
             Source = product.Source,
             IsActive = product.IsActive,
-            AddedAt = product.AddedAt
+            AddedAt = product.AddedAt,
+            Crawl = outcome.Request is null ? null : ToCrawlStatus(outcome.Request)
         };
 
         return CreatedAtAction(nameof(GetProduct), new { id = product.Id }, dto);
     }
+
+    // The same URL, or the same product code in the same market under a different
+    // spelling (e.g. the Arabic-language page of an item already tracked in English).
+    private Task<int?> FindExistingProductIdAsync(NoonUrl url, CancellationToken ct)
+    {
+        var marketPrefix = $"https://www.noon.com/{url.Market}-";
+        var skuSegment = $"/{url.Sku}/p/";
+
+        return db.Products
+            .Where(p => p.Url == url.Canonical || (p.Url.StartsWith(marketPrefix) && p.Url.Contains(skuSegment)))
+            .Select(p => (int?)p.Id)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    private ActionResult AlreadyTracked(int productId) =>
+        Conflict(new ProblemDetails
+        {
+            Status = StatusCodes.Status409Conflict,
+            Title = "Already tracked",
+            Detail = "This product is already tracked.",
+            Extensions = { ["productId"] = productId }
+        });
 
     [HttpGet("{id:int}/history")]
     public async Task<ActionResult<List<PriceSnapshotDto>>> GetProductHistory(int id)
@@ -258,6 +319,7 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
         var history = await db.PriceSnapshots
             .Where(s => s.ProductId == id)
             .OrderBy(s => s.CrawledAt)
+            .ThenBy(s => s.Id)
             .Select(s => new PriceSnapshotDto
             {
                 Price = s.Price,
@@ -282,10 +344,12 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
         var flags = await db.DiscountFlags
             .Where(f => f.ProductId == id)
             .OrderByDescending(f => f.DetectedAt)
+            .ThenByDescending(f => f.Id)
             .Select(f => new DiscountFlagDto
             {
                 PriorHighPrice = f.PriorHighPrice,
                 PriorHighDetectedAt = f.PriorHighDetectedAt,
+                HistoricalLowPrice = f.HistoricalLowPrice,
                 DiscountedPrice = f.DiscountedPrice,
                 DiscountPercent = f.DiscountPercent,
                 DetectedAt = f.DetectedAt
@@ -307,6 +371,7 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
         var restocks = await db.RestockEvents
             .Where(r => r.ProductId == id)
             .OrderByDescending(r => r.DetectedAt)
+            .ThenByDescending(r => r.Id)
             .Select(r => new RestockEventDto
             {
                 DetectedAt = r.DetectedAt
@@ -320,38 +385,39 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
     // in-process - this API has no browser available to it, so it hands the
     // actual scrape off to the same Chrome-capable environment the daily crawl
     // runs in, then the caller polls for the result.
+    //
+    // Idempotent per product: while a check is already Pending or Running, asking
+    // again returns that check instead of starting a second workflow run.
     [HttpPost("{id:int}/check-now")]
     [EnableRateLimiting(RateLimitPolicies.Dispatch)]
-    public async Task<ActionResult<CheckNowAcceptedDto>> CheckNow(int id)
+    public async Task<ActionResult<CheckNowAcceptedDto>> CheckNow(int id, CancellationToken ct)
     {
-        var productExists = await db.Products.AnyAsync(p => p.Id == id);
+        var productExists = await db.Products.AnyAsync(p => p.Id == id, ct);
         if (!productExists)
         {
             return NotFound();
         }
 
-        var request = new CheckNowRequest
-        {
-            ProductId = id,
-            Status = CheckNowStatus.Pending,
-            RequestedAt = DateTimeOffset.UtcNow
-        };
-        db.CheckNowRequests.Add(request);
-        await db.SaveChangesAsync();
+        var outcome = await jobs.RequestCheckAsync(id, ct);
 
-        try
+        if (outcome.Disposition == RequestDisposition.BudgetRejected)
         {
-            await dispatchService.TriggerCheckNowAsync(request.Id);
-        }
-        catch (Exception ex)
-        {
-            request.Status = CheckNowStatus.Failed;
-            request.ErrorMessage = $"Failed to trigger check: {ex.Message}";
-            request.CompletedAt = DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync();
-            return StatusCode(StatusCodes.Status502BadGateway, "Failed to trigger the check.");
+            Response.Headers.RetryAfter = "300";
+            return Problem(
+                title: "Too many checks",
+                detail: "Too many live checks were requested recently. Try again in a few minutes.",
+                statusCode: StatusCodes.Status429TooManyRequests);
         }
 
+        if (outcome.DispatchFailed)
+        {
+            return Problem(
+                title: "Could not start the check",
+                detail: outcome.Request?.ErrorMessage ?? "Failed to trigger the check.",
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+
+        var request = outcome.Request!;
         return AcceptedAtAction(nameof(GetCheckNowResult), new { id, requestId = request.Id }, new CheckNowAcceptedDto
         {
             RequestId = request.Id,
@@ -360,39 +426,75 @@ public class ProductsController(AppDbContext db, GitHubDispatchService dispatchS
     }
 
     [HttpGet("{id:int}/check-now/{requestId:int}")]
-    public async Task<ActionResult<CheckNowResultDto>> GetCheckNowResult(int id, int requestId)
+    public async Task<ActionResult<CheckNowResultDto>> GetCheckNowResult(int id, int requestId, CancellationToken ct)
     {
-        var request = await db.CheckNowRequests.FirstOrDefaultAsync(r => r.Id == requestId && r.ProductId == id);
+        var request = await db.CheckNowRequests
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == requestId && r.ProductId == id, ct);
         if (request is null)
         {
             return NotFound();
         }
 
+        var view = JobLifecycle.View(request, clock.GetUtcNow(), jobOptions.Value.StaleAfter);
+
         List<OfferDto>? offers = null;
         decimal? lowestPrice = null;
         string? lowestMerchant = null;
 
-        if (request.Status == CheckNowStatus.Completed && request.ResultJson is not null)
+        if (view.Status == JobStatus.Completed && request.ResultJson is not null)
         {
-            // OfferResult (Crawler project) and OfferDto have identical shapes -
-            // deserializing straight into the DTO avoids needing a project
-            // reference between Api and Crawler just for this one type.
-            offers = JsonSerializer.Deserialize<List<OfferDto>>(request.ResultJson) ?? [];
-            if (offers.Count > 0)
+            try
             {
-                lowestPrice = offers[0].Price;
-                lowestMerchant = offers[0].MerchantName;
+                // OfferResult (Crawler project) and OfferDto have identical shapes -
+                // deserializing straight into the DTO avoids needing a project
+                // reference between Api and Crawler just for this one type.
+                offers = JsonSerializer.Deserialize<List<OfferDto>>(request.ResultJson) ?? [];
+                if (offers.Count > 0)
+                {
+                    lowestPrice = offers[0].Price;
+                    lowestMerchant = offers[0].MerchantName;
+                }
+            }
+            catch (JsonException ex)
+            {
+                // Written by the crawler, so this means a bug or manual edit. Report
+                // the check as failed rather than turning a poll into a 500.
+                logger.LogError(ex, "Check-now request {RequestId} has an unreadable stored result", request.Id);
+                view = new JobView(JobStatus.Failed, "result", "The stored result could not be read.");
+                offers = null;
             }
         }
 
         return Ok(new CheckNowResultDto
         {
             RequestId = request.Id,
-            Status = request.Status.ToString(),
+            Status = view.Status.ToString(),
             LowestPrice = lowestPrice,
             LowestPriceMerchant = lowestMerchant,
             Offers = offers,
-            ErrorMessage = request.ErrorMessage
+            ErrorMessage = view.ErrorMessage,
+            FailureStage = view.FailureStage,
+            RequestedAt = request.RequestedAt,
+            StartedAt = request.StartedAt,
+            CompletedAt = request.CompletedAt,
+            RunUrl = GitHubActions.RunUrl(request.GitHubRunId)
         });
+    }
+
+    private CrawlStatusDto ToCrawlStatus(ProductCrawlRequest request)
+    {
+        var view = JobLifecycle.View(request, clock.GetUtcNow(), jobOptions.Value.StaleAfter);
+        return new CrawlStatusDto
+        {
+            RequestId = request.Id,
+            Status = view.Status.ToString(),
+            FailureStage = view.FailureStage,
+            ErrorMessage = view.ErrorMessage,
+            RequestedAt = request.RequestedAt,
+            StartedAt = request.StartedAt,
+            CompletedAt = request.CompletedAt,
+            RunUrl = GitHubActions.RunUrl(request.GitHubRunId)
+        };
     }
 }

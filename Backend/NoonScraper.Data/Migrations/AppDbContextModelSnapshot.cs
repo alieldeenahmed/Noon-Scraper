@@ -33,8 +33,19 @@ namespace NoonScraper.Data.Migrations
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ErrorMessage")
-                        .HasColumnType("text");
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("FailureStage")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long?>("GitHubRunId")
+                        .HasColumnType("bigint");
 
                     b.Property<int>("ProductId")
                         .HasColumnType("integer");
@@ -45,14 +56,76 @@ namespace NoonScraper.Data.Migrations
                     b.Property<string>("ResultJson")
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ProductId");
+                    b.HasIndex("ProductId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CheckNowRequests_ActivePerProduct")
+                        .HasFilter("\"Status\" IN (0, 3)");
+
+                    b.HasIndex("Status", "RequestedAt");
 
                     b.ToTable("CheckNowRequests");
+                });
+
+            modelBuilder.Entity("NoonScraper.Data.Models.CrawlRun", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CategoriesAttempted")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CategoriesFailed")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("GitHubRunId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("ProductsAttempted")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ProductsDeferred")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ProductsFailed")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ProductsSucceeded")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Summary")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CrawlRuns_OneRunning")
+                        .HasFilter("\"Status\" = 3");
+
+                    b.ToTable("CrawlRuns");
                 });
 
             modelBuilder.Entity("NoonScraper.Data.Models.DiscountFlag", b =>
@@ -72,6 +145,9 @@ namespace NoonScraper.Data.Migrations
                     b.Property<decimal>("DiscountedPrice")
                         .HasColumnType("numeric");
 
+                    b.Property<decimal?>("HistoricalLowPrice")
+                        .HasColumnType("numeric");
+
                     b.Property<DateTimeOffset>("PriorHighDetectedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -88,7 +164,8 @@ namespace NoonScraper.Data.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.HasIndex("TriggeringSnapshotId");
+                    b.HasIndex("TriggeringSnapshotId")
+                        .IsUnique();
 
                     b.ToTable("DiscountFlags");
                 });
@@ -117,6 +194,8 @@ namespace NoonScraper.Data.Migrations
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("TelegramChatId");
 
                     b.HasIndex("ProductId", "TelegramChatId")
                         .IsUnique();
@@ -149,7 +228,7 @@ namespace NoonScraper.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ProductId", "CrawledAt");
+                    b.HasIndex("ProductId", "CrawledAt", "Id");
 
                     b.ToTable("PriceSnapshots");
                 });
@@ -198,6 +277,55 @@ namespace NoonScraper.Data.Migrations
                     b.ToTable("Products");
                 });
 
+            modelBuilder.Entity("NoonScraper.Data.Models.ProductCrawlRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CorrelationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("FailureStage")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long?>("GitHubRunId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("ProductId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ProductCrawlRequests_ActivePerProduct")
+                        .HasFilter("\"Status\" IN (0, 3)");
+
+                    b.HasIndex("Status", "RequestedAt");
+
+                    b.ToTable("ProductCrawlRequests");
+                });
+
             modelBuilder.Entity("NoonScraper.Data.Models.RestockEvent", b =>
                 {
                     b.Property<int>("Id")
@@ -219,7 +347,8 @@ namespace NoonScraper.Data.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.HasIndex("TriggeringSnapshotId");
+                    b.HasIndex("TriggeringSnapshotId")
+                        .IsUnique();
 
                     b.ToTable("RestockEvents");
                 });
@@ -269,6 +398,17 @@ namespace NoonScraper.Data.Migrations
                 {
                     b.HasOne("NoonScraper.Data.Models.Product", "Product")
                         .WithMany("PriceSnapshots")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("NoonScraper.Data.Models.ProductCrawlRequest", b =>
+                {
+                    b.HasOne("NoonScraper.Data.Models.Product", "Product")
+                        .WithMany()
                         .HasForeignKey("ProductId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

@@ -8,10 +8,12 @@ public class CategoryScraperTests(BrowserFixture browser) : IClassFixture<Browse
 {
     private const string CategoryUrl = "https://www.noon.com/egypt-en/mobiles/";
 
-    private async Task<List<ScrapedProduct>> ScrapeAsync(string html)
+    private async Task<List<ScrapedProduct>> ScrapeAsync(string html) => (await ScrapeFullAsync(html)).Products.ToList();
+
+    private async Task<CategoryScrapeResult> ScrapeFullAsync(string html)
     {
         var page = await browser.PageServingAsync(html);
-        return await CategoryScraper.ScrapeAsync(page, CategoryUrl);
+        return await CategoryScraper.ScrapeAsync(page, CategoryUrl, TimeSpan.FromSeconds(3));
     }
 
     private static string Tile(string name = "Some Phone", string price = "1,000", string? discount = null,
@@ -135,7 +137,7 @@ public class CategoryScraperTests(BrowserFixture browser) : IClassFixture<Browse
     }
 }
 
-// A separate class so its 15-second wait runs alongside the others.
+// Failure behaviour: what the scraper reports when the page isn't what it expects.
 [Trait("Category", "Browser")]
 public class CategoryScraperFailureTests(BrowserFixture browser) : IClassFixture<BrowserFixture>
 {
@@ -147,6 +149,83 @@ public class CategoryScraperFailureTests(BrowserFixture browser) : IClassFixture
         var page = await browser.PageServingAsync(Fixtures.Page("<h1>Access denied</h1>"));
 
         await Assert.ThrowsAsync<TimeoutException>(() =>
-            CategoryScraper.ScrapeAsync(page, "https://www.noon.com/egypt-en/mobiles/"));
+            CategoryScraper.ScrapeAsync(page, "https://www.noon.com/egypt-en/mobiles/", TimeSpan.FromMilliseconds(400)));
+    }
+
+    [Theory]
+    [InlineData(403, true)]
+    [InlineData(429, true)]
+    [InlineData(503, true)]
+    [InlineData(404, false)]
+    [InlineData(410, false)]
+    public async Task An_http_error_is_reported_with_whether_retrying_could_help(int status, bool transient)
+    {
+        var page = await browser.PageServingAsync("<h1>nope</h1>", status);
+
+        var ex = await Assert.ThrowsAsync<ScrapeNavigationException>(() =>
+            CategoryScraper.ScrapeAsync(page, "https://www.noon.com/egypt-en/mobiles/", TimeSpan.FromMilliseconds(300)));
+
+        Assert.Equal(status, ex.Status);
+        Assert.Equal(transient, ex.IsTransient);
+    }
+
+    // One tile with no price element used to make InnerText wait out Playwright's
+    // 30-second default and then throw - losing the entire category. It is now
+    // skipped immediately and reported.
+    [Fact]
+    public async Task A_tile_with_no_price_is_skipped_quickly_and_the_rest_are_kept()
+    {
+        var broken = Fixtures.Tile("/egypt-en/broken/N2/p/", "Broken", "1,000").Replace("_amount_", "_amountGone_");
+        var html = Fixtures.Page(
+            Fixtures.Tile("/egypt-en/good-one/N1/p/", "Good One", "1,000")
+            + broken
+            + Fixtures.Tile("/egypt-en/good-two/N3/p/", "Good Two", "2,000"));
+        var page = await browser.PageServingAsync(html);
+
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var result = await CategoryScraper.ScrapeAsync(page, "https://www.noon.com/egypt-en/mobiles/", TimeSpan.FromSeconds(3));
+        timer.Stop();
+
+        Assert.Equal(["Good One", "Good Two"], result.Products.Select(p => p.Name));
+        var skipped = Assert.Single(result.Skipped);
+        Assert.Contains("no price element", skipped.Reason);
+        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(10), $"took {timer.Elapsed}");
+    }
+
+    [Fact]
+    public async Task A_tile_with_no_name_element_is_skipped()
+    {
+        var nameless = Fixtures.Tile("/egypt-en/x/N2/p/", "X", "1,000")
+            .Replace("data-qa=\"product-box-name\"", "data-qa=\"something-else\"");
+        var page = await browser.PageServingAsync(Fixtures.Page(nameless + Fixtures.Tile("/egypt-en/ok/N1/p/", "Ok", "5")));
+
+        var result = await CategoryScraper.ScrapeAsync(page, "https://www.noon.com/egypt-en/mobiles/", TimeSpan.FromSeconds(3));
+
+        Assert.Equal(["Ok"], result.Products.Select(p => p.Name));
+        Assert.Contains("no name element", Assert.Single(result.Skipped).Reason);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("free")]
+    public async Task A_tile_with_a_zero_or_unreadable_price_is_skipped(string price)
+    {
+        var page = await browser.PageServingAsync(Fixtures.Page(
+            Fixtures.Tile("/egypt-en/x/N2/p/", "X", price) + Fixtures.Tile("/egypt-en/ok/N1/p/", "Ok", "5")));
+
+        var result = await CategoryScraper.ScrapeAsync(page, "https://www.noon.com/egypt-en/mobiles/", TimeSpan.FromSeconds(3));
+
+        Assert.Equal(["Ok"], result.Products.Select(p => p.Name));
+        Assert.Single(result.Skipped);
+    }
+
+    [Fact]
+    public async Task Prices_written_in_arabic_indic_digits_are_read()
+    {
+        var page = await browser.PageServingAsync(Fixtures.Page(Fixtures.Tile("/egypt-en/x/N1/p/", "X", "١٢٬٩٩٩")));
+
+        var result = await CategoryScraper.ScrapeAsync(page, "https://www.noon.com/egypt-en/mobiles/", TimeSpan.FromSeconds(3));
+
+        Assert.Equal(12999m, Assert.Single(result.Products).Price);
     }
 }

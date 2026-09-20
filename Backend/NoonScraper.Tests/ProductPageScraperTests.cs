@@ -12,7 +12,7 @@ public class ProductPageScraperTests(BrowserFixture browser) : IClassFixture<Bro
     private async Task<ScrapedProduct?> ScrapeAsync(string html, string url = Fixtures.ProductUrl)
     {
         var page = await browser.PageServingAsync(html);
-        return await ProductPageScraper.ScrapeAsync(page, url);
+        return await ProductPageScraper.ScrapeAsync(page, url, TimeSpan.FromSeconds(2));
     }
 
     // Both products are trimmed copies of real JSON-LD; the expected values
@@ -149,5 +149,42 @@ public class ProductPageScraperTests(BrowserFixture browser) : IClassFixture<Bro
         var product = await ScrapeAsync(Fixtures.ProductPageRaw(Fixtures.Read("breadcrumb.jsonld.json")));
 
         Assert.Null(product);
+    }
+
+    // A page with no price element (an unavailable product) used to fail after a
+    // 20-second wait even though its structured data was fine.
+    [Fact]
+    public async Task Reads_structured_data_even_when_the_page_never_shows_a_price()
+    {
+        var page = await browser.PageServingAsync(
+            Fixtures.Page($"<script type=\"application/ld+json\">{Anker().ToJsonString()}</script>"));
+
+        var product = await ProductPageScraper.ScrapeAsync(page, Fixtures.ProductUrl, TimeSpan.FromMilliseconds(300));
+
+        Assert.Equal("N70294248V", product!.NoonProductId);
+    }
+
+    [Theory]
+    [InlineData(403, true)]
+    [InlineData(429, true)]
+    [InlineData(500, true)]
+    [InlineData(404, false)]
+    public async Task An_http_error_is_reported_with_whether_retrying_could_help(int status, bool transient)
+    {
+        var page = await browser.PageServingAsync("<h1>error</h1>", status);
+
+        var ex = await Assert.ThrowsAsync<ScrapeNavigationException>(() =>
+            ProductPageScraper.ScrapeAsync(page, Fixtures.ProductUrl, TimeSpan.FromMilliseconds(300)));
+
+        Assert.Equal(transient, ex.IsTransient);
+    }
+
+    [Fact]
+    public async Task A_product_block_without_a_price_is_a_parse_error_not_a_zero()
+    {
+        var json = Anker();
+        json["offers"]!.AsObject().Remove("price");
+
+        await Assert.ThrowsAsync<ScrapeParseException>(() => ScrapeAsync(Fixtures.ProductPage(json)));
     }
 }

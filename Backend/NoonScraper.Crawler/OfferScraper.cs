@@ -1,6 +1,3 @@
-using System.Globalization;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 
 namespace NoonScraper.Crawler;
@@ -12,26 +9,52 @@ namespace NoonScraper.Crawler;
 // and the JSON-LD offer is the whole story.
 public static class OfferScraper
 {
-    public static async Task<List<OfferResult>> ScrapeOffersAsync(IPage page, string productUrl)
-    {
-        await page.GotoAsync(productUrl);
-        await page.WaitForSelectorAsync("[data-qa='div-price-now']", new PageWaitForSelectorOptions
-        {
-            Timeout = 20000
-        });
+    private static readonly TimeSpan DefaultHydrationTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan DefaultSettleDelay = TimeSpan.FromSeconds(5);
 
-        // The "other sellers" section hydrates well after the initial price data -
-        // checking for the trigger immediately after price load misses it.
+    // settleDelay is how long to let the page finish hydrating before looking
+    // for the "other sellers" trigger, which renders well after the price does.
+    // Production leaves it at the default; tests shorten it.
+    public static async Task<List<OfferResult>> ScrapeOffersAsync(
+        IPage page,
+        string productUrl,
+        TimeSpan? settleDelay = null,
+        TimeSpan? hydrationTimeout = null)
+    {
+        var response = await page.GotoAsync(productUrl);
+        if (response is { Ok: false })
+        {
+            throw new ScrapeNavigationException(response.Status, productUrl);
+        }
+
         try
         {
-            await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions { Timeout = 15000 });
+            await page.WaitForSelectorAsync("[data-qa='div-price-now']", new PageWaitForSelectorOptions
+            {
+                Timeout = (float)(hydrationTimeout ?? DefaultHydrationTimeout).TotalMilliseconds
+            });
         }
         catch (TimeoutException)
         {
-            // Some background requests (analytics, tracking pixels) never go idle -
-            // proceed anyway once the fixed wait below gives the page a chance to settle.
         }
-        await page.WaitForTimeoutAsync(5000);
+
+        // The "other sellers" section hydrates well after the initial price data -
+        // checking for the trigger immediately after price load misses it.
+        var settle = settleDelay ?? DefaultSettleDelay;
+        if (settle > TimeSpan.Zero)
+        {
+            try
+            {
+                await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions { Timeout = 15000 });
+            }
+            catch (TimeoutException)
+            {
+                // Some background requests (analytics, tracking pixels) never go idle -
+                // proceed anyway once the fixed wait below gives the page a chance to settle.
+            }
+
+            await page.WaitForTimeoutAsync((float)settle.TotalMilliseconds);
+        }
 
         var trigger = page.Locator("text=More offers from other sellers");
         if (await trigger.CountAsync() == 0)
@@ -58,20 +81,30 @@ public static class OfferScraper
         {
             var card = cards.Nth(i);
 
-            var sellerName = await card.Locator("[class*='_sellerName_']").First.InnerTextAsync();
-            var priceText = await card.Locator("[class*='_sellingPrice_']").First.InnerTextAsync();
-            var price = ParseDecimal(priceText);
+            // A card missing its seller or price is skipped rather than failing the
+            // comparison: the other sellers' offers are still worth showing.
+            var sellerName = card.Locator("[class*='_sellerName_']");
+            var sellingPrice = card.Locator("[class*='_sellingPrice_']");
+            if (await sellerName.CountAsync() == 0 || await sellingPrice.CountAsync() == 0)
+            {
+                continue;
+            }
+
+            if (!PriceText.TryParse(await sellingPrice.First.InnerTextAsync(), out var price) || price <= 0)
+            {
+                continue;
+            }
 
             decimal? rating = null;
             var ratingLocator = card.Locator("[class*='_textValue_']");
             if (await ratingLocator.CountAsync() > 0)
             {
-                rating = TryParseDecimal(await ratingLocator.First.InnerTextAsync());
+                rating = PriceText.TryParseOrNull(await ratingLocator.First.InnerTextAsync());
             }
 
             offers.Add(new OfferResult
             {
-                MerchantName = sellerName.Trim(),
+                MerchantName = (await sellerName.First.InnerTextAsync()).Trim(),
                 Price = price,
                 Rating = rating
             });
@@ -83,65 +116,7 @@ public static class OfferScraper
     private static async Task<List<OfferResult>> ScrapeDefaultOfferAsync(IPage page)
     {
         var scripts = await page.Locator("script[type='application/ld+json']").AllTextContentsAsync();
-
-        foreach (var scriptText in scripts)
-        {
-            JsonDocument? doc;
-            try
-            {
-                doc = JsonDocument.Parse(scriptText);
-            }
-            catch (JsonException)
-            {
-                continue;
-            }
-
-            using (doc)
-            {
-                var root = doc.RootElement;
-                if (!root.TryGetProperty("@type", out var typeProp) || typeProp.GetString() != "Product")
-                {
-                    continue;
-                }
-
-                var offers = root.GetProperty("offers");
-                if (offers.ValueKind == JsonValueKind.Array)
-                {
-                    offers = offers[0];
-                }
-
-                var price = offers.GetProperty("price").GetDecimal();
-
-                var merchantName = "noon";
-                if (offers.TryGetProperty("seller", out var seller) &&
-                    seller.TryGetProperty("name", out var sellerNameProp))
-                {
-                    merchantName = sellerNameProp.GetString() ?? "noon";
-                }
-
-                return [new OfferResult { MerchantName = merchantName, Price = price }];
-            }
-        }
-
-        return [];
-    }
-
-    private static decimal ParseDecimal(string text)
-    {
-        var match = Regex.Match(text, @"[\d,]+(\.\d+)?");
-        if (!match.Success)
-        {
-            throw new FormatException($"No numeric value found in '{text}'");
-        }
-
-        return decimal.Parse(match.Value.Replace(",", ""), NumberStyles.Any, CultureInfo.InvariantCulture);
-    }
-
-    private static decimal? TryParseDecimal(string text)
-    {
-        var match = Regex.Match(text, @"[\d,]+(\.\d+)?");
-        return match.Success
-            ? decimal.Parse(match.Value.Replace(",", ""), NumberStyles.Any, CultureInfo.InvariantCulture)
-            : null;
+        var offer = ProductJsonLd.ParseDefaultOffer(scripts);
+        return offer is null ? [] : [offer];
     }
 }

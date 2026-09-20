@@ -6,6 +6,14 @@ on:
     - cron: "0 3 * * *"
   workflow_dispatch: {}
 
+# A manual run started while the scheduled one is still going waits for it instead
+# of running alongside. (The crawler also refuses to overlap: it takes a
+# one-running-crawl row in the database, so a run that somehow starts anyway exits
+# cleanly without crawling.) Never cancelled mid-flight.
+concurrency:
+  group: daily-crawl
+  cancel-in-progress: false
+
 jobs:
   crawl:
     # Pinned explicitly rather than ubuntu-latest: Playwright's dependency installer

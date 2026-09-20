@@ -1,0 +1,13 @@
+{
+  "requestId": 3,
+  "status": "Running",
+  "lowestPrice": null,
+  "lowestPriceMerchant": null,
+  "offers": null,
+  "errorMessage": null,
+  "failureStage": null,
+  "requestedAt": "2026-09-20T10:00:00\u002B00:00",
+  "startedAt": "2026-09-20T10:00:15\u002B00:00",
+  "completedAt": null,
+  "runUrl": "https://github.com/alieldeenahmed/Noon-Scraper/actions/runs/557"
+}

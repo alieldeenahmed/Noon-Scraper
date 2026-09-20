@@ -9,7 +9,7 @@ The standard pattern (and what's implemented here): a "Notify me" link on a prod
 ## The two halves, and why they live in different projects
 
 - **Subscribe/unsubscribe** (`TelegramController`, in `NoonScraper.Api`) has to be always-on, since Telegram can deliver a webhook call at any moment — this is exactly what the API already is.
-- **Actually sending a notification** (`TelegramNotifier`, in `NoonScraper.Crawler`) only makes sense at the moment a product's price or stock actually changes — and the only place that ever learns that is the crawler, right after it writes a new `PriceSnapshot`. Putting the send logic there means it runs for both the daily scheduled crawl and an on-demand `check-now` run, with no duplicated logic.
+- **Actually sending a notification** (`SubscriptionNotifier`, in `NoonScraper.Data`, over a small `TelegramSender`) only makes sense at the moment a product's price or stock actually changes — and the only place that ever learns that is the crawler, right after `ProductRecorder` commits a new `PriceSnapshot`. Notifications are sent *after* the commit, and each is claimed with a conditional update before it's sent, so two overlapping crawls can't both send the same alert and a failed send doesn't advance the baseline. The same code runs for the daily crawl and the on-demand `crawl-product` run.
 
 ## When a notification fires
 
@@ -28,8 +28,8 @@ The standard pattern (and what's implemented here): a "Notify me" link on a prod
    cd NoonScraper.Api    # and again for NoonScraper.Crawler
    dotnet user-secrets set "Telegram:BotToken" "<token>"
    ```
-   In `daily-crawl.yml` (the only workflow that calls `UpsertAsync`/`TelegramNotifier` — `check-now.yml` only does the cross-merchant offer comparison and never writes a `PriceSnapshot`, so it has no use for this token), GitHub Actions accepts the normal double-underscore env var name fine. Back4app doesn't, though, so `Program.cs` and `TelegramService`/`TelegramNotifier` also check a flat `TELEGRAM_BOT_TOKEN` as a fallback — same restriction as the database connection string (see `hosting.md`).
-3. **Pick a webhook secret** — any random string, used only to confirm incoming webhook calls genuinely came from Telegram (checked against the `X-Telegram-Bot-Api-Secret-Token` header). Store it the same way, under `Telegram:WebhookSecret` / `TELEGRAM_WEBHOOK_SECRET`. This one only needs to exist on the API, not the Crawler.
+   `daily-crawl.yml` and `crawl-product.yml` are the workflows that record readings and so send notifications (`check-now.yml` only compares sellers and never writes a `PriceSnapshot`, so it has no use for this token); GitHub Actions accepts the normal double-underscore env var name fine. Back4app doesn't, though, so the settings helper (`SettingsExtensions`) also checks a flat `TELEGRAM_BOT_TOKEN` as a fallback — same restriction as the database connection string (see `hosting.md`).
+3. **Pick a webhook secret** — any random string, used only to confirm incoming webhook calls genuinely came from Telegram (checked, in constant time, against the `X-Telegram-Bot-Api-Secret-Token` header). Store it the same way, under `Telegram:WebhookSecret` / `TELEGRAM_WEBHOOK_SECRET`. This one only needs to exist on the API, not the Crawler. **Outside `Development` the webhook refuses every request (`503`) until it's set** — with no secret there's nothing to authenticate Telegram against, so it fails closed rather than accepting anyone.
 4. **Register the webhook** — once the API has a real public URL, call this once:
    ```bash
    curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<your-api-host>/api/telegram/webhook&secret_token=<your-chosen-secret>"
@@ -45,4 +45,4 @@ The standard pattern (and what's implemented here): a "Notify me" link on a prod
 
 ## Unsubscribing
 
-There's no per-product "stop notifying me" from the frontend — the frontend has no concept of *who* is asking (no auth, no way to know a browser's Telegram chat ID). Unsubscribing happens by messaging the bot `/stop`, which removes every subscription for that chat at once. Kept deliberately simple for V1 rather than building account linking just to support a more granular unsubscribe.
+Only text messages in *private* chats are acted on, and a chat can hold at most 25 subscriptions. There's no per-product "stop notifying me" from the frontend — the frontend has no concept of *who* is asking (no auth, no way to know a browser's Telegram chat ID). Unsubscribing happens by messaging the bot `/stop`, which removes every subscription for that chat at once. Kept deliberately simple for V1 rather than building account linking just to support a more granular unsubscribe.
