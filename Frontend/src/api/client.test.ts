@@ -115,3 +115,12 @@ describe('the response contract', () => {
     }
   })
 })
+
+describe('an API that is one deploy behind', () => {
+  it('reads fields it has not added yet as null instead of failing', async () => {
+    const { crawl: _crawl, ...oldShape } = product()
+    respond(200, oldShape)
+
+    await expect(getProduct(7)).resolves.toMatchObject({ crawl: null })
+  })
+})

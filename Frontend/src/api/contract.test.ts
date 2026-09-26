@@ -20,7 +20,7 @@ import {
 // stops producing it); here, the same files must satisfy the schemas the UI
 // validates every response with. A DTO change that the frontend hasn't caught up
 // with fails one of the two, in CI.
-const CONTRACTS = resolve(__dirname, '../../../Backend/NoonScraper.Tests/Contracts')
+const CONTRACTS = resolve(import.meta.dirname, '../../../Backend/NoonScraper.Tests/Contracts')
 
 function fixture(name: string): unknown {
   return JSON.parse(readFileSync(resolve(CONTRACTS, `${name}.json`), 'utf8'))

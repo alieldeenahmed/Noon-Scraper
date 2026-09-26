@@ -18,6 +18,11 @@ export const categorySchema = z.enum(['Mobiles', 'Laptops', 'SkinCare', 'HairCar
 export const productSourceSchema = z.enum(['Seed', 'UserAdded'])
 
 // A crawl or check request: Pending -> Running -> Completed | Failed.
+// Fields the API added later. A missing one is read as null instead of failing the
+// whole response, so a frontend deployed a few minutes before its API (Vercel and
+// Back4app deploy separately) keeps working - it just doesn't show the new detail.
+const added = <T extends z.ZodType>(schema: T) => schema.nullish().transform((v) => v ?? null)
+
 export const jobStatusSchema = z.enum(['Pending', 'Running', 'Completed', 'Failed'])
 
 export const productListItemSchema = z.object({
@@ -76,7 +81,7 @@ export const productDetailSchema = z.object({
   latestStock: z.boolean().nullable(),
   lastCrawledAt: z.string().nullable(),
   // The most recent "crawl this now" request, if any.
-  crawl: crawlStatusSchema.nullable(),
+  crawl: added(crawlStatusSchema),
 })
 
 export const priceSnapshotSchema = z.object({
@@ -89,7 +94,7 @@ export const priceSnapshotSchema = z.object({
 export const discountFlagSchema = z.object({
   priorHighPrice: z.number(),
   priorHighDetectedAt: z.string(),
-  historicalLowPrice: z.number().nullable(),
+  historicalLowPrice: added(z.number()),
   discountedPrice: z.number(),
   discountPercent: z.number(),
   detectedAt: z.string(),
@@ -117,11 +122,11 @@ export const checkNowResultSchema = z.object({
   lowestPriceMerchant: z.string().nullable(),
   offers: z.array(offerSchema).nullable(),
   errorMessage: z.string().nullable(),
-  failureStage: z.string().nullable(),
-  requestedAt: z.string(),
-  startedAt: z.string().nullable(),
-  completedAt: z.string().nullable(),
-  runUrl: z.string().nullable(),
+  failureStage: added(z.string()),
+  requestedAt: added(z.string()),
+  startedAt: added(z.string()),
+  completedAt: added(z.string()),
+  runUrl: added(z.string()),
 })
 
 // RFC 7807 problem details, which is what every error response from the API is.

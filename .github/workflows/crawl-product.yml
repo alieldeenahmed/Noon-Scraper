@@ -54,26 +54,23 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('Backend/**/*.csproj') }}
           restore-keys: ${{ runner.os }}-nuget-
 
-      # The Chrome download (~150MB) was the single biggest chunk of a
-      # crawl-product run - caching it means most runs skip that download
-      # entirely. Keyed on the Playwright package version so a version bump
-      # still fetches the matching browser build.
-      - name: Cache Playwright browser
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-chrome-1.55.0
-
       - name: Build
         run: dotnet build --configuration Release
 
-      - name: Install Chrome for Playwright
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: dotnet run --configuration Release -- install chrome
-
-      - name: Install Playwright system dependencies
-        run: dotnet run --configuration Release -- install-deps
+      # GitHub's Ubuntu runner image already ships Google Chrome and xvfb, and Chrome's
+      # system libraries come with it, so the usual path installs nothing. Installing
+      # Playwright's dependencies from scratch was ~25 s of every on-demand run (the
+      # user is watching a spinner for it). If a future runner image drops either one,
+      # fall back to the old install so the workflow keeps working, just slower.
+      - name: Check for Chrome and xvfb (install only if missing)
+        run: |
+          if command -v google-chrome >/dev/null && command -v xvfb-run >/dev/null; then
+            echo "Using the runner's $(google-chrome --version) and xvfb"
+          else
+            echo "::warning title=Slow path::Chrome or xvfb missing on the runner; installing them"
+            dotnet run --configuration Release -- install chrome
+            dotnet run --configuration Release -- install-deps
+          fi
 
       # The id comes in through the environment and is checked before use, rather than
       # being spliced into the shell command, so a malformed dispatch payload can't
