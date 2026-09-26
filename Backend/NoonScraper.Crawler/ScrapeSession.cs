@@ -1,3 +1,5 @@
+using Microsoft.Playwright;
+
 namespace NoonScraper.Crawler;
 
 // What the crawl jobs need from "a browser": read a category page, a product
@@ -33,16 +35,56 @@ public sealed class BrowserScrapeSessionFactory : IScrapeSessionFactory
 
 public sealed class BrowserScrapeSession(StealthBrowser browser) : IScrapeSession
 {
+    private const string HomePage = "https://www.noon.com/egypt-en/";
+
+    private bool _warmedUp;
+
     public Task<CategoryScrapeResult> ScrapeCategoryAsync(string url, CancellationToken ct) =>
         RunAsync(() => CategoryScraper.ScrapeAsync(browser.Page, url), ct);
 
     public Task<ScrapedProduct?> ScrapeProductAsync(string url, CancellationToken ct) =>
-        RunAsync(() => ProductPageScraper.ScrapeAsync(browser.Page, url), ct);
+        RunAsync(async () =>
+        {
+            await WarmUpAsync();
+            return await ProductPageScraper.ScrapeAsync(browser.Page, url);
+        }, ct);
 
     public async Task<IReadOnlyList<OfferResult>> ScrapeOffersAsync(string url, CancellationToken ct) =>
-        await RunAsync(() => OfferScraper.ScrapeOffersAsync(browser.Page, url), ct);
+        await RunAsync(async () =>
+        {
+            await WarmUpAsync();
+            return await OfferScraper.ScrapeOffersAsync(browser.Page, url);
+        }, ct);
 
     public Task ResetAsync(CancellationToken ct) => browser.ResetPageAsync();
+
+    // The scheduled crawl reads category pages before any product page, so by then
+    // the browser has the site's session cookies - and its product pages load. The
+    // on-demand jobs used to open a product page as the very first request of a
+    // cold browser, and noon.com answered those with HTTP 403 while the same URL
+    // succeeded minutes later in the daily crawl. Visiting the home page first
+    // gives them the same starting point. Best effort: if it fails, the real
+    // scrape goes ahead and reports its own error.
+    private async Task WarmUpAsync()
+    {
+        if (_warmedUp)
+        {
+            return;
+        }
+
+        _warmedUp = true;
+        try
+        {
+            await browser.Page.GotoAsync(HomePage, new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 15000
+            });
+        }
+        catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+        {
+        }
+    }
 
     public ValueTask DisposeAsync() => browser.DisposeAsync();
 
