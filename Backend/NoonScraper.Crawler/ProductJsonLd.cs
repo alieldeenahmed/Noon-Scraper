@@ -43,8 +43,63 @@ public static class ProductJsonLd
             DiscountPercent = ReadDiscountPercent(offer, price),
             Rating = ReadRating(root),
             MerchantName = ReadSellerName(offer),
-            Stock = ReadInStock(offer)
+            Stock = ReadInStock(offer),
+            Breadcrumb = ReadBreadcrumb(scriptTexts)
         };
+    }
+
+    // The BreadcrumbList block next to the Product, as one string per crumb (name and
+    // URL together, root first). Missing or malformed just means no breadcrumb.
+    public static IReadOnlyList<string> ReadBreadcrumb(IEnumerable<string> scriptTexts)
+    {
+        foreach (var text in scriptTexts)
+        {
+            JsonDocument doc;
+            try
+            {
+                doc = JsonDocument.Parse(text);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+
+            using (doc)
+            {
+                foreach (var candidate in Candidates(doc.RootElement))
+                {
+                    if (!IsType(candidate, "BreadcrumbList")
+                        || !candidate.TryGetProperty("itemListElement", out var items)
+                        || items.ValueKind != JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    var crumbs = new List<string>();
+                    foreach (var entry in items.EnumerateArray())
+                    {
+                        if (entry.ValueKind != JsonValueKind.Object)
+                        {
+                            continue;
+                        }
+
+                        var name = ReadString(entry, "name") ?? "";
+                        var url = entry.TryGetProperty("item", out var item)
+                            ? item.ValueKind == JsonValueKind.String ? item.GetString() : ReadString(item, "@id")
+                            : null;
+                        var crumb = $"{name} {url}".Trim();
+                        if (crumb.Length > 0)
+                        {
+                            crumbs.Add(crumb);
+                        }
+                    }
+
+                    return crumbs;
+                }
+            }
+        }
+
+        return [];
     }
 
     // The single default offer, for products that have no "other sellers" panel.
@@ -124,7 +179,9 @@ public static class ProductJsonLd
         }
     }
 
-    private static bool IsProduct(JsonElement element)
+    private static bool IsProduct(JsonElement element) => IsType(element, "Product");
+
+    private static bool IsType(JsonElement element, string expected)
     {
         if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty("@type", out var type))
         {
@@ -133,8 +190,8 @@ public static class ProductJsonLd
 
         return type.ValueKind switch
         {
-            JsonValueKind.String => type.GetString() == "Product",
-            JsonValueKind.Array => type.EnumerateArray().Any(t => t.ValueKind == JsonValueKind.String && t.GetString() == "Product"),
+            JsonValueKind.String => type.GetString() == expected,
+            JsonValueKind.Array => type.EnumerateArray().Any(t => t.ValueKind == JsonValueKind.String && t.GetString() == expected),
             _ => false
         };
     }

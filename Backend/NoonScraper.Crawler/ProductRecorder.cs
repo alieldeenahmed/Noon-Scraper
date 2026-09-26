@@ -112,9 +112,16 @@ public sealed class ProductRecorder(
                 product.Rating = item.Rating;
             }
 
+            // A category the caller knows (the listing page it came from) always wins.
+            // Otherwise a product with none yet - one a user submitted by link -
+            // takes the one its own breadcrumb points to, and keeps it after that.
             if (category is not null)
             {
                 product.Category = category;
+            }
+            else if (product.Category is null)
+            {
+                product.Category = CategoryInference.Infer(item.Breadcrumb);
             }
 
             if (item.MerchantName is not null)

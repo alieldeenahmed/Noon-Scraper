@@ -16,6 +16,10 @@ Without it, `POST /api/products` just inserts a bare row — `Url` and nothing e
 
 The daily crawl, the re-crawl of user-added products, and this one-off crawl all do the same thing with a scraped page: find-or-create the `Product`, append a `PriceSnapshot`, run restock / fake-discount detection, notify Telegram subscribers. That is `ProductRecorder.RecordAsync` — it replaced the static `ProductUpserter`, which had no protection against two crawls of one product overlapping. It now runs each reading in one transaction behind a per-product advisory lock and sends notifications only after the commit; see [architecture.md](architecture.md).
 
+## Categories for pasted links
+
+The scheduled crawl learns a product's category from the listing page it found it on. A product a user pastes a link to has no such page, so `ProductRecorder` takes it from the product page's own breadcrumb trail (the `BreadcrumbList` JSON-LD block) via `CategoryInference`: the trail is read from the most specific crumb up and matched on crumb names and URL slugs against the five tracked categories plus `Electronics`; anything with a trail that matches nothing is `Other`. A category that's already set is never replaced by a guess, and one the caller knows (the listing page) always wins. The matching keywords are my reading of Noon's category names, not a documented taxonomy, so a product that lands in `Other` or the wrong bucket usually means adding a keyword to `CategoryInference`.
+
 ## What happens if the dispatch fails
 
 - A transient failure (network, 5xx, rate limiting) is retried up to three times with a short backoff before giving up.

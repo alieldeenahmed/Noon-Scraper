@@ -6,6 +6,8 @@ const categoryLabels: Record<Category, string> = {
   SkinCare: 'Skin Care',
   HairCare: 'Hair Care',
   PersonalCare: 'Personal Care',
+  Electronics: 'Electronics',
+  Other: 'Other',
 }
 
 export function formatCategory(category: Category | null): string {

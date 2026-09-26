@@ -13,7 +13,7 @@ import { z } from 'zod'
 // ASP.NET serializes camelCase, enums as strings, and null (not absent) for
 // missing values; timestamps are ISO-8601 strings.
 
-export const categorySchema = z.enum(['Mobiles', 'Laptops', 'SkinCare', 'HairCare', 'PersonalCare'])
+export const categorySchema = z.enum(['Mobiles', 'Laptops', 'SkinCare', 'HairCare', 'PersonalCare', 'Electronics', 'Other'])
 
 export const productSourceSchema = z.enum(['Seed', 'UserAdded'])
 

@@ -124,3 +124,12 @@ describe('an API that is one deploy behind', () => {
     await expect(getProduct(7)).resolves.toMatchObject({ crawl: null })
   })
 })
+
+describe('categories', () => {
+  it('accepts every category the backend can assign, including the ones for pasted links', async () => {
+    for (const category of ['Mobiles', 'Laptops', 'SkinCare', 'HairCare', 'PersonalCare', 'Electronics', 'Other'] as const) {
+      respond(200, product({ category }))
+      await expect(getProduct(7)).resolves.toMatchObject({ category })
+    }
+  })
+})

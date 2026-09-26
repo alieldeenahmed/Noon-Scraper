@@ -5,7 +5,7 @@ import { formatCategory } from '../lib/format'
 import AddProductForm from '../components/AddProductForm'
 import ProductRow, { ROW_GRID } from '../components/ProductRow'
 
-const categories: Category[] = ['Mobiles', 'Laptops', 'SkinCare', 'HairCare', 'PersonalCare']
+const categories: Category[] = ['Mobiles', 'Laptops', 'SkinCare', 'HairCare', 'PersonalCare', 'Electronics', 'Other']
 
 const PAGE_SIZE = 25
 const SEARCH_DEBOUNCE_MS = 300
