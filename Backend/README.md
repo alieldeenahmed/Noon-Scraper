@@ -85,7 +85,7 @@ dotnet build
 # you can create databases on). The scraper tests also drive a real Chrome, which must be installed.
 dotnet test
 
-# ...or just the 609 that don't need a browser
+# ...or just the 645 that don't need a browser
 dotnet test --filter "Category!=Browser"
 
 # Run the API
@@ -118,7 +118,7 @@ The Crawler launches a real, visible (headful) Chrome instance — this only wor
 
 This project is feature-complete. **Done:** data model, category-page crawling (5 categories: Mobiles, Laptops, Skin Care, Hair Care, Personal Care), user-submitted URL tracking with detail-page scraping and an immediate one-off crawl on submit (rather than waiting for the next scheduled run — see `docs/crawl-on-submit.md`), restock detection, fake-discount detection, on-demand cross-merchant check-now (via GitHub Actions), a scheduled GitHub Actions workflow that runs the crawl automatically once a day, a deployment of the API on Back4app and the frontend on Vercel, and Telegram notifications — subscribe/unsubscribe and restock/price-drop alerts, with the real webhook registered and verified against a live subscription (not just simulated locally).
 
-Quality gates: `NoonScraper.Tests` — 663 xUnit tests (609 without a browser), all on real PostgreSQL where the database is involved — runs in CI on every push and PR alongside the frontend's lint, tests and build (`.github/workflows/ci.yml`). It covers the detection rules and parsing, the job lifecycle and every database constraint (including concurrent writers), `ProductRecorder`, the daily crawl's failure isolation, the dispatched jobs, GitHub dispatch retries, the Telegram webhook, the API's paging / validation / rate limiting through the real ASP.NET Core pipeline, and the three Playwright scrapers run in a real browser against saved noon.com markup. Not covered: a change in Noon's live markup — the scraper fixtures (`NoonScraper.Tests/Fixtures/`) are static snapshots. The API has no authentication, by design; what bounds the abuse it could attract is in `docs/security-model.md` (in-process per-IP and combined rate limits, plus database-backed budgets on the endpoints that spend GitHub Actions minutes).
+Quality gates: `NoonScraper.Tests` — 699 xUnit tests (645 without a browser; 360 of them use a real PostgreSQL) — runs in CI on every push and PR alongside the frontend's lint, tests and build (`.github/workflows/ci.yml`). It covers the detection rules and parsing, the job lifecycle and every database constraint (including concurrent writers), `ProductRecorder`, the daily crawl's failure isolation, the dispatched jobs, GitHub dispatch retries, the Telegram webhook, the API's paging / validation / rate limiting through the real ASP.NET Core pipeline, and the three Playwright scrapers run in a real browser against saved noon.com markup. Not covered: a change in Noon's live markup — the scraper fixtures (`NoonScraper.Tests/Fixtures/`) are static snapshots. The API has no authentication, by design; what bounds the abuse it could attract is in `docs/security-model.md` (in-process per-IP and combined rate limits, plus database-backed budgets on the endpoints that spend GitHub Actions minutes).
 
 The latest migration (`JobLifecycleAndIntegrityConstraints`) has been tested against legacy data but **has not been applied to the production database**. Apply it first, then deploy the API, then the crawler — see `docs/known-limitations.md`.
 
