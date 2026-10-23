@@ -28,6 +28,7 @@
     <ProjectReference Include="..\NoonScraper.Api\NoonScraper.Api.csproj" />
     <ProjectReference Include="..\NoonScraper.Crawler\NoonScraper.Crawler.csproj" />
     <ProjectReference Include="..\NoonScraper.Data\NoonScraper.Data.csproj" />
+    <ProjectReference Include="..\NoonScraper.DemoData\NoonScraper.DemoData.csproj" />
   </ItemGroup>
 
 </Project>
