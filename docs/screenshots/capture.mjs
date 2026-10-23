@@ -5,12 +5,20 @@
 //   npm i --no-save playwright-core        (run once, from the repository root)
 //   node docs/screenshots/capture.mjs      (needs Google Chrome installed)
 //
-// The product ids below (73, 78) are the ones a fresh seed of an empty database produces
-// first; adjust them if yours differ (GET /api/products?search=Aurora).
+// Product ids are looked up by name from the API, so re-seeding (which changes ids) is fine.
 import { chromium } from 'playwright-core'
 
 const OUT = import.meta.dirname
 const BASE = 'http://localhost:5173'
+const API = process.env.API_URL ?? 'http://localhost:5176'
+
+async function idOf(search) {
+  const res = await fetch(`${API}/api/products?search=${encodeURIComponent(search)}&pageSize=1`)
+  const body = await res.json()
+  if (!body.items.length) throw new Error(`No demo product matching "${search}" - is the demo data loaded?`)
+  return body.items[0].id
+}
+
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 
@@ -43,7 +51,7 @@ await shot('demo-product-list.png', `${BASE}/`, {
 // A product whose "25% off" sale is flagged: the price quietly spiked ~40% for a week, then
 // the "sale" landed at a price still above its old low. Scrolled so the last rows of the
 // history (spike, sale) and the flag entry are in view together.
-await shot('demo-fake-discount.png', `${BASE}/products/73`, {
+await shot('demo-fake-discount.png', `${BASE}/products/${await idOf('Aurora')}`, {
   waitFor: 'text=discount flags', height: 900,
   before: async (page) => {
     await page.evaluate(() => {
@@ -54,7 +62,7 @@ await shot('demo-fake-discount.png', `${BASE}/products/73`, {
 })
 
 // A restock.
-await shot('demo-restock.png', `${BASE}/products/78`, {
+await shot('demo-restock.png', `${BASE}/products/${await idOf('Drift Mini')}`, {
   waitFor: 'text=restock history', height: 700,
   before: async (page) => {
     await page.evaluate(() => {
