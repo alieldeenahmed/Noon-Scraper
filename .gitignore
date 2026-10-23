@@ -584,3 +584,7 @@ appsettings.*.local.json
 /data/
 /logs/
 .vite/
+
+# Keep the documented example env files tracked (the .env.* rules above would ignore them).
+!.env.example
+!**/.env.example
