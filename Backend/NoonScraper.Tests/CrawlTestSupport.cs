@@ -130,7 +130,9 @@ public sealed class CrawlHarness : IDisposable
         ConnectionString = TestDb.CreateConnectionString();
         Session = new FakeScrapeSession();
         Sessions = new FakeScrapeSessionFactory(Session);
-        Options = new CrawlOptions { RetryDelay = TimeSpan.Zero };
+        // Zero everywhere: no test sleeps by accident. The pause between pages is exercised
+        // on purpose, with a clock that records it instead of waiting (RecordingClock).
+        Options = new CrawlOptions { RetryDelay = TimeSpan.Zero, DelayBetweenPages = TimeSpan.Zero };
         Db = NewContext();
     }
 
@@ -177,10 +179,10 @@ public sealed class CrawlHarness : IDisposable
         return new CrawlProductJob(db, Sessions, NewRecorder(db), Clock, Options.AsOptions(), CrawlProductLog);
     }
 
-    public DailyCrawl NewDailyCrawl(AppDbContext? db = null)
+    public DailyCrawl NewDailyCrawl(AppDbContext? db = null, TimeProvider? clock = null)
     {
         db ??= NewContext();
-        return new DailyCrawl(db, Sessions, NewRecorder(db), Clock, Options.AsOptions(), NullLogger<DailyCrawl>.Instance);
+        return new DailyCrawl(db, Sessions, NewRecorder(db), clock ?? Clock, Options.AsOptions(), NullLogger<DailyCrawl>.Instance);
     }
 
     public void Dispose()
@@ -246,4 +248,77 @@ public sealed class CrawlHarness : IDisposable
 public static class OptionsExtensions
 {
     public static IOptions<CrawlOptions> AsOptions(this CrawlOptions options) => Options.Create(options);
+}
+
+// A clock for testing pauses without ever sleeping. Task.Delay asks its TimeProvider for a
+// timer; this one records the requested delay, moves time forward by that much, and lets
+// the delay finish at once - so a test can assert exactly which pauses were taken and
+// when each visit started, in microseconds of real time.
+//
+// With Hang = true the timer never fires and the time never moves: a test uses that to hold
+// a run inside a pause (WaitUntilHeldInDelay says when it is there) and then cancel it.
+public sealed class RecordingClock(DateTimeOffset start) : TimeProvider
+{
+    private readonly object _gate = new();
+    private readonly List<TimeSpan> _delays = [];
+    private readonly TaskCompletionSource _held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private DateTimeOffset _now = start;
+
+    public bool Hang { get; set; }
+
+    public Task WaitUntilHeldInDelay => _held.Task;
+
+    public IReadOnlyList<TimeSpan> Delays
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _delays];
+            }
+        }
+    }
+
+    public override DateTimeOffset GetUtcNow()
+    {
+        lock (_gate)
+        {
+            return _now;
+        }
+    }
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        lock (_gate)
+        {
+            _delays.Add(dueTime);
+            if (!Hang)
+            {
+                _now += dueTime;
+            }
+        }
+
+        if (Hang)
+        {
+            _held.TrySetResult();
+        }
+        else
+        {
+            // Off this thread: the caller (Task.Delay) is still constructing its promise.
+            ThreadPool.QueueUserWorkItem(_ => callback(state));
+        }
+
+        return new InertTimer();
+    }
+
+    private sealed class InertTimer : ITimer
+    {
+        public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+
+        public void Dispose()
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 }

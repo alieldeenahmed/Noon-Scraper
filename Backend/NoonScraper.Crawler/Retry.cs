@@ -14,6 +14,14 @@ public sealed class CrawlOptions
     // Delay before retry N is RetryDelay * N.
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(3);
 
+    // The least time between the end of one page visit and the start of the next
+    // within a scheduled crawl (category pages, then user-added product pages). Time
+    // already spent between two visits - recording a category's products, say - counts
+    // towards it. Never applied before the first visit or after the last, and not to
+    // the single-page jobs (crawl-product, check-now). Zero or negative turns it off.
+    // A pause that would run past Budget is not taken: the run stops starting work.
+    public TimeSpan DelayBetweenPages { get; set; } = TimeSpan.FromSeconds(3);
+
     // The scheduled crawl stops starting new work after this long, so a large
     // backlog ends with a clean summary instead of the workflow's hard timeout
     // killing it mid-product. Unreached products are crawled first next time.
