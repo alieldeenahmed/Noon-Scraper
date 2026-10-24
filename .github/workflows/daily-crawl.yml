@@ -48,23 +48,25 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('Backend/**/*.csproj') }}
           restore-keys: ${{ runner.os }}-nuget-
 
-      - name: Cache Playwright browser
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-chrome-1.55.0
-
       - name: Build
         run: dotnet build --configuration Release
 
-      - name: Install Chrome for Playwright
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: dotnet run --configuration Release -- install chrome
-
-      - name: Install Playwright system dependencies
-        # Includes xvfb among the ~200 packages it pulls in, which the next step needs.
-        run: dotnet run --configuration Release -- install-deps
+      # GitHub's Ubuntu runner image already ships Google Chrome and xvfb, and the
+      # on-demand workflows have run on exactly that for weeks. The old unconditional
+      # "install Playwright system dependencies" step downloads ~200 packages and hung
+      # on 2026-10-23 until the job timeout cancelled the whole crawl, so it now only runs
+      # if Chrome or xvfb is missing - and with its own timeout, so a stuck install fails
+      # fast instead of consuming the job's 20 minutes.
+      - name: Check for Chrome and xvfb (install only if missing)
+        timeout-minutes: 8
+        run: |
+          if command -v google-chrome >/dev/null && command -v xvfb-run >/dev/null; then
+            echo "Using the runner's $(google-chrome --version) and xvfb"
+          else
+            echo "::warning title=Slow path::Chrome or xvfb missing on the runner; installing them"
+            dotnet run --configuration Release -- install chrome
+            dotnet run --configuration Release -- install-deps
+          fi
 
       - name: Run crawler
         # Headless Chrome is hard-blocked by the target site's anti-bot protection at

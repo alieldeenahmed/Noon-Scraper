@@ -18,6 +18,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# This workflow only reads the repository; it needs no write access to anything.
+permissions:
+  contents: read
+
 jobs:
   backend:
     name: Backend (build + test)

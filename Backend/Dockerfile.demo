@@ -1,0 +1,16 @@
+# Builds and runs NoonScraper.DemoData: applies the migrations, then loads SYNTHETIC
+# demo data. Used by docker-compose.yml's "seed" service. Separate from the API's
+# Dockerfile so the deployed image stays exactly what it was.
+FROM mcr.microsoft.com/dotnet/sdk:9.0
+WORKDIR /src
+
+COPY NoonScraper.Data/NoonScraper.Data.csproj NoonScraper.Data/
+COPY NoonScraper.DemoData/NoonScraper.DemoData.csproj NoonScraper.DemoData/
+RUN dotnet restore NoonScraper.DemoData/NoonScraper.DemoData.csproj
+
+COPY NoonScraper.Data/ NoonScraper.Data/
+COPY NoonScraper.DemoData/ NoonScraper.DemoData/
+RUN dotnet publish NoonScraper.DemoData/NoonScraper.DemoData.csproj -c Release -o /app
+
+WORKDIR /app
+ENTRYPOINT ["dotnet", "NoonScraper.DemoData.dll"]
