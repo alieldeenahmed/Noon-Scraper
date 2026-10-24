@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using NoonScraper.Crawler;
 using NoonScraper.Crawler.Jobs;
 using NoonScraper.Data;
@@ -572,6 +573,269 @@ public class DailyCrawlTests
             // Every product's reading is committed on its own, so what was done stays done.
             Assert.Equal(1, h.Query(db => db.PriceSnapshots.Count()));
             Assert.Equal(2, h.Session.CallsTo("product"));
+        }
+    }
+
+    // The pause between page visits in the scheduled crawl. Every test here uses a
+    // RecordingClock, which records each requested delay and moves time forward by it
+    // instead of waiting, so nothing in this group sleeps.
+    public class PoliteDelay
+    {
+        private static readonly DateTimeOffset T0 = new(2026, 10, 25, 3, 0, 0, TimeSpan.Zero);
+        private static readonly TimeSpan Three = TimeSpan.FromSeconds(3);
+
+        // Records, by the clock under test, when each page visit starts.
+        private static List<DateTimeOffset> RecordVisits(CrawlHarness h, RecordingClock clock)
+        {
+            var starts = new List<DateTimeOffset>();
+            h.Session.Category = (_, _) =>
+            {
+                lock (starts) { starts.Add(clock.GetUtcNow()); }
+                return Task.FromResult(Found());
+            };
+            h.Session.Product = (url, _) =>
+            {
+                lock (starts) { starts.Add(clock.GetUtcNow()); }
+                return Task.FromResult<ScrapedProduct?>(CrawlHarness.Scraped(NoonUrl.ExtractSku(url)!));
+            };
+            return starts;
+        }
+
+        [Fact]
+        public async Task Waits_between_consecutive_visits_and_not_before_the_first()
+        {
+            using var h = new CrawlHarness();
+            h.Options.DelayBetweenPages = Three;
+            var clock = new RecordingClock(T0);
+            h.AddProduct("U1");
+            h.AddProduct("U2");
+            var starts = RecordVisits(h, clock);
+            var pausesBeforeFirstVisit = -1;
+            var recordFirst = h.Session.Category;
+            h.Session.Category = (url, ct) =>
+            {
+                if (pausesBeforeFirstVisit < 0)
+                {
+                    pausesBeforeFirstVisit = clock.Delays.Count;
+                }
+
+                return recordFirst(url, ct);
+            };
+
+            await h.NewDailyCrawl(clock: clock).RunAsync(null, CancellationToken.None);
+
+            // 5 category pages and 2 product pages = 7 visits, so 6 pauses between them.
+            Assert.Equal(7, starts.Count);
+            Assert.Equal(0, pausesBeforeFirstVisit);
+            Assert.Equal(6, clock.Delays.Count);
+            Assert.All(clock.Delays, d => Assert.Equal(Three, d));
+            Assert.Equal(T0, starts[0]);
+            for (var i = 1; i < starts.Count; i++)
+            {
+                Assert.Equal(Three, starts[i] - starts[i - 1]);
+            }
+        }
+
+        [Fact]
+        public async Task A_failed_visit_still_counts_as_a_visit_for_pacing()
+        {
+            using var h = new CrawlHarness();
+            h.Options.DelayBetweenPages = Three;
+            var clock = new RecordingClock(T0);
+            var starts = new List<DateTimeOffset>();
+            h.Session.Category = (_, _) =>
+            {
+                starts.Add(clock.GetUtcNow());
+                return starts.Count == 1 ? throw new ScrapeParseException("layout changed") : Task.FromResult(Found());
+            };
+
+            var summary = await h.NewDailyCrawl(clock: clock).RunAsync(null, CancellationToken.None);
+
+            Assert.Equal(1, summary.CategoriesFailed);
+            Assert.Equal(5, starts.Count);
+            Assert.Equal(4, clock.Delays.Count);
+            Assert.Equal(Three, starts[1] - starts[0]);
+        }
+
+        [Fact]
+        public async Task A_product_already_recorded_from_a_category_is_not_a_visit_and_is_not_waited_for()
+        {
+            using var h = new CrawlHarness();
+            h.Options.DelayBetweenPages = Three;
+            var clock = new RecordingClock(T0);
+            h.AddProduct("SHARED");
+            var visits = RecordVisits(h, clock);
+            var recordVisit = h.Session.Category;
+            h.Session.Category = (url, ct) =>
+            {
+                recordVisit(url, ct);
+                return Task.FromResult(Found(CrawlHarness.Scraped("SHARED")));
+            };
+
+            await h.NewDailyCrawl(clock: clock).RunAsync(null, CancellationToken.None);
+
+            // SHARED was recorded from the first category, so its own page is never visited:
+            // 5 visits, 4 pauses.
+            Assert.Equal(5, visits.Count);
+            Assert.Equal(4, clock.Delays.Count);
+        }
+
+        [Fact]
+        public async Task A_single_product_crawl_is_not_slowed()
+        {
+            using var h = new CrawlHarness();
+            h.Options.DelayBetweenPages = Three;
+            var request = h.AddCrawl(h.AddProduct("U1"));
+            h.Session.Product = (_, _) => Task.FromResult<ScrapedProduct?>(CrawlHarness.Scraped("U1"));
+
+            // The harness clock is a FakeTimeProvider nobody advances: if the job waited on
+            // it, this would hang, and WaitAsync turns that into a failure.
+            var exit = await h.NewCrawlProductJob().RunAsync(request.Id, 1, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(ExitCodes.Success, exit);
+            Assert.Equal(1, h.Session.CallsTo("product"));
+        }
+
+        [Fact]
+        public async Task A_single_check_now_is_not_slowed()
+        {
+            using var h = new CrawlHarness();
+            h.Options.DelayBetweenPages = Three;
+            var request = h.AddCheckNow(h.AddProduct("U1"));
+            h.Session.Offers = (_, _) => Task.FromResult<IReadOnlyList<OfferResult>>(
+                [new OfferResult { MerchantName = "noon", Price = 100 }]);
+
+            var exit = await h.NewCheckNowJob().RunAsync(request.Id, 1, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(ExitCodes.Success, exit);
+            Assert.Equal(1, h.Session.CallsTo("offers"));
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-5)]
+        public async Task Zero_or_negative_delay_means_no_waiting(int seconds)
+        {
+            using var h = new CrawlHarness();
+            h.Options.DelayBetweenPages = TimeSpan.FromSeconds(seconds);
+            var clock = new RecordingClock(T0);
+            h.AddProduct("U1");
+            h.AddProduct("U2");
+            var starts = RecordVisits(h, clock);
+
+            await h.NewDailyCrawl(clock: clock).RunAsync(null, CancellationToken.None);
+
+            Assert.Equal(7, starts.Count);
+            Assert.Empty(clock.Delays);
+            Assert.All(starts, t => Assert.Equal(T0, t));
+        }
+
+        [Fact]
+        public async Task Cancelling_during_a_pause_stops_the_run_promptly()
+        {
+            using var h = new CrawlHarness();
+            h.Options.DelayBetweenPages = Three;
+            var clock = new RecordingClock(T0) { Hang = true };
+            var starts = RecordVisits(h, clock);
+            using var cts = new CancellationTokenSource();
+
+            var run = h.NewDailyCrawl(clock: clock).RunAsync(7, cts.Token);
+            // The run is now inside the pause that follows the first category page.
+            await clock.WaitUntilHeldInDelay.WaitAsync(TimeSpan.FromSeconds(30));
+            cts.Cancel();
+            var summary = await run.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.True(summary.Cancelled);
+            Assert.Equal(ExitCodes.Cancelled, summary.ExitCode(h.Options));
+            Assert.Single(starts);
+            Assert.Equal(1, summary.CategoriesAttempted);
+            var saved = h.Query(db => db.CrawlRuns.AsNoTracking().Single());
+            Assert.Equal(JobStatus.Failed, saved.Status);
+            Assert.Equal("Cancelled.", saved.Summary);
+        }
+
+        [Fact]
+        public async Task A_pause_that_would_cross_the_time_budget_is_not_taken_so_the_run_stops_starting_work()
+        {
+            using var h = new CrawlHarness();
+            h.Options.DelayBetweenPages = Three;
+            h.Options.Budget = TimeSpan.FromSeconds(5);
+            var clock = new RecordingClock(T0);
+            var starts = RecordVisits(h, clock);
+
+            var summary = await h.NewDailyCrawl(clock: clock).RunAsync(null, CancellationToken.None);
+
+            // Visit 1 at 0 s, a 3 s pause, visit 2 at 3 s; the next pause would end at 6 s,
+            // past the 5 s budget, so it is not taken and no third page is visited.
+            Assert.Equal(2, starts.Count);
+            Assert.Equal([Three], clock.Delays);
+            Assert.Equal(2, summary.CategoriesAttempted);
+            Assert.Equal(0, summary.CategoriesFailed);
+            Assert.False(summary.Cancelled);
+            Assert.True(clock.GetUtcNow() < T0 + h.Options.Budget);
+        }
+
+        [Fact]
+        public async Task When_the_pause_before_the_first_product_would_cross_the_budget_the_products_are_deferred()
+        {
+            using var h = new CrawlHarness();
+            h.Options.DelayBetweenPages = Three;
+            // Room for 4 pauses (12 s) between the 5 category pages, but not a 5th before products.
+            h.Options.Budget = TimeSpan.FromSeconds(13);
+            var clock = new RecordingClock(T0);
+            h.AddProduct("U1");
+            h.AddProduct("U2");
+            var starts = RecordVisits(h, clock);
+
+            var summary = await h.NewDailyCrawl(clock: clock).RunAsync(null, CancellationToken.None);
+
+            Assert.Equal(5, starts.Count);
+            Assert.Equal(4, clock.Delays.Count);
+            Assert.Equal(2, summary.ProductsDeferred);
+            Assert.Equal(0, h.Session.CallsTo("product"));
+            Assert.Equal(ExitCodes.Success, summary.ExitCode(h.Options));
+        }
+    }
+
+    public class PoliteDelayConfiguration
+    {
+        private static CrawlOptions Bind(params (string Key, string Value)[] settings) =>
+            new ConfigurationBuilder()
+                .AddInMemoryCollection(settings.ToDictionary(s => s.Key, s => (string?)s.Value))
+                .Build()
+                .GetSection(CrawlOptions.SectionName)
+                .Get<CrawlOptions>() ?? new CrawlOptions();
+
+        [Fact]
+        public void Unset_means_the_documented_default_of_three_seconds()
+        {
+            Assert.Equal(TimeSpan.FromSeconds(3), Bind().DelayBetweenPages);
+            Assert.Equal(TimeSpan.FromSeconds(3), new CrawlOptions().DelayBetweenPages);
+        }
+
+        [Theory]
+        [InlineData("00:00:00", 0)]
+        [InlineData("00:00:01.500", 1500)]
+        [InlineData("00:00:10", 10000)]
+        public void It_is_read_from_the_Crawl_section_as_a_time_span(string text, int expectedMilliseconds)
+        {
+            var options = Bind(("Crawl:DelayBetweenPages", text));
+
+            Assert.Equal(TimeSpan.FromMilliseconds(expectedMilliseconds), options.DelayBetweenPages);
+        }
+
+        [Fact]
+        public void The_default_leaves_a_normal_run_well_inside_its_budget()
+        {
+            // 5 category pages + 11 user-added products (the size of the last recorded run)
+            // = 16 visits = 15 pauses at most. That is a small share of the budget.
+            var options = new CrawlOptions();
+
+            var worstCasePauses = 15 * options.DelayBetweenPages;
+
+            Assert.True(worstCasePauses < options.Budget / 10, $"{worstCasePauses} of {options.Budget}");
         }
     }
 

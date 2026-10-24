@@ -154,6 +154,35 @@ public sealed class DailyCrawl(
         // and the user-added list; it's read once per run.
         var seen = new HashSet<string>();
 
+        // Politeness: at least DelayBetweenPages between the end of one page visit and
+        // the start of the next. Nothing before the first visit (lastVisitEnded is still
+        // null) and nothing after the last. Returns false when waiting would run past
+        // the deadline - the caller then treats the budget as spent instead of starting
+        // another visit, so the pause can never push the run beyond its budget.
+        DateTimeOffset? lastVisitEnded = null;
+
+        async Task<bool> PauseBeforeNextVisitAsync()
+        {
+            if (lastVisitEnded is not { } last || o.DelayBetweenPages <= TimeSpan.Zero)
+            {
+                return true;
+            }
+
+            var wait = o.DelayBetweenPages - (clock.GetUtcNow() - last);
+            if (wait <= TimeSpan.Zero)
+            {
+                return true;
+            }
+
+            if (clock.GetUtcNow() + wait >= deadline)
+            {
+                return false;
+            }
+
+            await Task.Delay(wait, clock, ct);
+            return true;
+        }
+
         async Task<bool> TryRecordAsync(Func<Task> record, string url)
         {
             tally.Attempted++;
@@ -181,6 +210,12 @@ public sealed class DailyCrawl(
                 continue;
             }
 
+            if (!await PauseBeforeNextVisitAsync())
+            {
+                logger.LogWarning("Time budget would be spent waiting between pages; not starting category {Category}", category);
+                continue;
+            }
+
             tally.CategoriesAttempted++;
             logger.LogInformation("Scraping category {Category}", category);
 
@@ -195,6 +230,11 @@ public sealed class DailyCrawl(
                 logger.LogError(ex, "Failed to scrape category {Category}", category);
                 await ResetQuietlyAsync(session, ct);
                 continue;
+            }
+            finally
+            {
+                // A failed visit is still a request to the site; the pause counts from here.
+                lastVisitEnded = clock.GetUtcNow();
             }
 
             logger.LogInformation(
@@ -243,12 +283,27 @@ public sealed class DailyCrawl(
                 continue;
             }
 
+            if (!await PauseBeforeNextVisitAsync())
+            {
+                tally.Deferred = userAdded.Count - i;
+                logger.LogWarning("Time budget would be spent waiting between pages; deferring {Count} product(s) to the next run", tally.Deferred);
+                break;
+            }
+
             var recorded = await TryRecordAsync(async () =>
             {
-                var scraped = await ScrapeWithRetryAsync(
-                    async () => await session.ScrapeProductAsync(product.Url, ct)
-                        ?? throw new ScrapeNoDataException("The page had no product data (it may have been blocked)."),
-                    session, o, ct);
+                ScrapedProduct scraped;
+                try
+                {
+                    scraped = await ScrapeWithRetryAsync(
+                        async () => await session.ScrapeProductAsync(product.Url, ct)
+                            ?? throw new ScrapeNoDataException("The page had no product data (it may have been blocked)."),
+                        session, o, ct);
+                }
+                finally
+                {
+                    lastVisitEnded = clock.GetUtcNow();
+                }
 
                 // Update the row this product already has, whatever spelling of the
                 // URL the page reported back.

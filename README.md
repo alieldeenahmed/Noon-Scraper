@@ -14,11 +14,9 @@ The interesting part isn't fetching a page. It's the backend around it: backgrou
 
 ## Live demo
 
-**Frontend:** <https://noon-scraper-phi.vercel.app> · **API:** a free-tier Back4app container whose URL changes whenever it is recreated (current one in [`Backend/README.md`](Backend/README.md); history in [`Backend/docs/hosting.md`](Backend/docs/hosting.md)).
+**Frontend:** <https://noon-scraper-phi.vercel.app> · **API:** see [`Backend/README.md`](Backend/README.md).
 
-> **State when this was last checked (2026-10-24):** the frontend loads, but the API container returned `404` for every endpoint, so the page shows "Couldn't reach the API". The database and the scheduled crawl were unaffected. If the demo looks empty, run it locally with the synthetic data below.
-
-| Works on the live demo (while the API container is up) | Needs a local run |
+| Works on the live demo | Needs a local run |
 |---|---|
 | Browse, search, filter, sort and page the tracked products | Seeded **synthetic** demo data (the live database holds real scraped data) |
 | Price history, flagged fake discounts, restock history | The test suites |
@@ -153,7 +151,7 @@ Needs a PostgreSQL database (`dotnet ef database update --project Backend/NoonSc
 
 ## Testing
 
-**699 backend tests** (xUnit; counted with `dotnet test --list-tests`) and **89 frontend tests** (Vitest). Of the backend tests, 645 run without a browser, 54 drive a real Chrome against saved markup, and **360 use a real PostgreSQL** — the rest are pure unit tests. CI runs the suite on every push to `main` and every pull request that isn't docs-only, against a PostgreSQL service container.
+**714 backend tests** (xUnit; counted with `dotnet test --list-tests`) and **89 frontend tests** (Vitest). Of the backend tests, 660 run without a browser, 54 drive a real Chrome against saved markup, and **355 use a real PostgreSQL** — the rest are pure unit tests. CI runs the suite on every push to `main` and every pull request that isn't docs-only, against a PostgreSQL service container.
 
 Real PostgreSQL matters because the claims above are about things an in-memory fake doesn't enforce: unique and partial indexes, advisory locks, foreign keys, transactions, concurrent writers. Thirteen tests are explicit concurrency tests (concurrent claims, simultaneous submissions, overlapping crawls, two scheduled runs started together), each asserting that exactly one party wins. Others provoke each index and cascade directly, apply the latest migration to a database holding representative legacy rows, attack the URL validator (look-alike hosts, userinfo, ports, zero-width characters, path tricks), and check the Telegram webhook against hostile payloads.
 
@@ -163,16 +161,16 @@ Honest limits: the scraper fixtures are static snapshots, so they catch a regres
 
 This is a personal project for learning backend engineering. It is **not** affiliated with or endorsed by Noon, and I have not asked Noon's permission. Please don't use it to put load on their site.
 
-What the code actually does to keep its footprint small: it visits only products that are tracked (five category pages and individual product pages, not the catalogue); the scheduled crawl runs once a day, sequentially, in a single browser tab, with a 15-minute time budget; scrapes retry at most once, with a 3-second pause; and user-submitted links are limited to noon.com product pages, with caps of 30 triggered jobs and 20 new products per hour and 500 user-added products in total.
+What the code actually does to keep its footprint small: it visits only products that are tracked (five category pages and individual product pages, not the catalogue); the scheduled crawl runs once a day, sequentially, in a single browser tab, with a 15-minute time budget, and **waits at least 3 seconds between one page visit and the next** (`Crawl:DelayBetweenPages`, configurable; time already spent between two visits counts towards it; it is not applied before the first visit, and not to the single-page `crawl-product` and `check-now` jobs, and a pause that would run past the time budget is not taken); scrapes retry at most once, with a 3-second pause; and user-submitted links are limited to noon.com product pages, with caps of 30 triggered jobs and 20 new products per hour and 500 user-added products in total.
 
-What it does **not** do: it doesn't read or obey `robots.txt`, it doesn't pause between products, it uses Chrome's default user agent, and the browser is configured to hide common automation signals ([`StealthBrowser.cs`](Backend/NoonScraper.Crawler/StealthBrowser.cs)) because the site blocks plain automated browsers. I make no claim that this complies with Noon's terms of service; whether and how to run it against their site is the operator's responsibility.
+What it does **not** do: it doesn't read or obey `robots.txt`, it uses Chrome's default user agent, it doesn't delay the one home-page load that opens a session before the first product page, and the browser is configured to hide common automation signals ([`StealthBrowser.cs`](Backend/NoonScraper.Crawler/StealthBrowser.cs)) because the site blocks plain automated browsers. I make no claim that this complies with Noon's terms of service; whether and how to run it against their site is the operator's responsibility.
 
 ## Limitations
 
 - **Depends on a site that resists automation.** The daily crawl is sometimes blocked: the run on 2026-10-16 failed all five categories and the next day's failed one (I have the counts, not the pages, so "blocked" is my inference); the five runs after that succeeded. A change in their markup would break parsing, and the saved-markup tests cannot detect it.
 - **A lost dispatch isn't retried.** The request is expired and reported as failed after 15 minutes; the user resubmits, and the daily crawl covers tracked products.
 - **GitHub schedules are approximate.** The 03:00 UTC cron has been starting roughly five hours late (between about 07:30 and 08:40 UTC in recent runs).
-- **The demo's API is on a free tier** that gets recreated, so its URL changes and it can be down.
+- **The demo runs on free tiers**, so the first request after a quiet period can be slow.
 - **No authentication**, by design for a public demo: abuse is bounded by caps, not prevented, and anyone can use up the hourly budgets. The in-process rate limiter is per instance.
 - **The fake-discount rule is a heuristic** over this system's own crawl history, not proof of anything; it can't judge a product it has barely seen.
 - **Only one site, and only the first page of each category.**
